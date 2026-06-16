@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { program } from 'commander'
 import { existsSync, readFileSync } from 'fs'
 import { loadConfig, initConfig } from './config.js'
@@ -10,8 +8,8 @@ import {
     writeChatFile,
     getLastUserBlockIndex,
     estimateTokens,
-    type ChatBlock,
-} from './parser.js'
+} from './file.js'
+import type { ChatBlock } from './parser.js'
 import {
     processDirectives,
     resetDirectiveCache,
