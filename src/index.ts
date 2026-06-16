@@ -93,7 +93,7 @@ async function cmdComplete(
     const config = loadConfig()
     if (!config.apiKey) {
         console.error(
-            'Error: No API key found. Set OPENAI_API_KEY or CHATFILE_API_KEY environment variable, or configure in .chatfilerc/config.json'
+            'Error: No API key found. Set OPENAI_API_KEY environment variable, or configure in .chatfilerc/config.json'
         )
         process.exit(1)
     }

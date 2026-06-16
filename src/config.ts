@@ -19,12 +19,16 @@ function findProjectRoot(startDir: string): string | null {
     }
 }
 
+const configTemplate: Config = {
+    endpoint: 'https://api.deepseek.com',
+    model: 'deepseek-v4-pro',
+    apiKey: '',
+}
+
 export function loadConfig(): Config {
-    const envApiKey =
-        process.env.OPENAI_API_KEY || process.env.CHATFILE_API_KEY || ''
+    const envApiKey = process.env.OPENAI_API_KEY || ''
     const defaultConfig: Config = {
-        endpoint: 'https://api.deepseek.com',
-        model: 'deepseek-chat',
+        ...configTemplate,
         apiKey: envApiKey,
     }
 
@@ -61,7 +65,7 @@ export function loadConfig(): Config {
             if (!existsSync(allowFile)) {
                 console.error(
                     'Warning: API key found in .chatfilerc/config.json. ' +
-                        'It is recommended to use OPENAI_API_KEY or CHATFILE_API_KEY environment variable instead. ' +
+                        'It is recommended to use OPENAI_API_KEY environment variable instead. ' +
                         'To suppress this warning, create .chatfilerc/allow-apikey-in-project marker file.'
                 )
             }
@@ -91,12 +95,6 @@ export function initConfig(): void {
         return
     }
 
-    const template: Config = {
-        endpoint: 'https://api.deepseek.com',
-        model: 'deepseek-chat',
-        apiKey: '',
-    }
-
-    writeFileSync(configPath, JSON.stringify(template, null, 2) + '\n')
+    writeFileSync(configPath, JSON.stringify(configTemplate, null, 2) + '\n')
     console.log(`Created config template at ${configPath}`)
 }
