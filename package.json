@@ -1,0 +1,27 @@
+{
+    "name": "chatfile",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Chatfile - AI conversations recorded as .chat.md files",
+    "main": "dist/index.js",
+    "bin": {
+        "chatfile": "dist/index.js"
+    },
+    "scripts": {
+        "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:commander",
+        "dev": "esno src/index.ts",
+        "lint": "prettier -w src package.json"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "commander": "^15.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.9.3",
+        "esbuild": "^0.28.1",
+        "esno": "^4.8.0",
+        "prettier": "^3.8.4"
+    }
+}
