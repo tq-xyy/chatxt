@@ -1,6 +1,6 @@
 {
     "name": "chatfile",
-    "version": "1.0.0",
+    "version": "0.1.1",
     "type": "module",
     "description": "Chatfile - AI conversations recorded as .chat.md files",
     "main": "dist/index.js",
@@ -9,7 +9,7 @@
     },
     "scripts": {
         "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:commander",
-        "test": "esno src/promptBuilder.ts test.ignored.chat.md",
+        "test": "esno src/cli.ts test.ignored.chat.md -t",
         "lint": "prettier -w src package.json tsconfig.json"
     },
     "keywords": [],

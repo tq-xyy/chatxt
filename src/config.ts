@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs'
+import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
 import { join, dirname } from 'path'
 
 export interface Config {
@@ -7,14 +7,20 @@ export interface Config {
     apiKey: string
 }
 
-function findProjectRoot(startDir: string): string | null {
+/**
+ * 异步查找项目根目录（包含 .chatfilerc 文件夹的最近父目录）
+ */
+async function findProjectRoot(startDir: string): Promise<string | null> {
     let dir = startDir
     while (true) {
-        if (existsSync(join(dir, '.chatfilerc'))) {
+        try {
+            await access(join(dir, '.chatfilerc'), constants.F_OK)
             return dir
+        } catch {
+            // 目录不存在，继续向上
         }
         const parent = dirname(dir)
-        if (parent === dir) return null
+        if (parent === dir) return null // 到达根目录
         dir = parent
     }
 }
@@ -25,7 +31,10 @@ const configTemplate: Config = {
     apiKey: '',
 }
 
-export function loadConfig(): Config {
+/**
+ * 异步加载配置，返回 Promise<Config>
+ */
+export async function loadConfig(): Promise<Config> {
     const envApiKey = process.env.OPENAI_API_KEY || ''
     const defaultConfig: Config = {
         ...configTemplate,
@@ -33,68 +42,77 @@ export function loadConfig(): Config {
     }
 
     const cwd = process.cwd()
-    const projectRoot = findProjectRoot(cwd)
+    const projectRoot = await findProjectRoot(cwd)
     if (!projectRoot) {
         return defaultConfig
     }
 
     const configPath = join(projectRoot, '.chatfilerc', 'config.json')
-    if (!existsSync(configPath)) {
-        return defaultConfig
-    }
+    let fileConfig: Partial<Config> = {}
 
     try {
-        const raw = readFileSync(configPath, 'utf-8')
-        const fileConfig = JSON.parse(raw) as Partial<Config>
-
-        const merged: Config = {
-            ...defaultConfig,
-            ...fileConfig,
-        }
-
-        // apiKey priority: env > config file
-        merged.apiKey = envApiKey || fileConfig.apiKey || ''
-
-        // Security warning if apiKey is in config file without allow file
-        if (fileConfig.apiKey && fileConfig.apiKey.length > 0 && !envApiKey) {
-            const allowFile = join(
-                projectRoot,
-                '.chatfilerc',
-                'allow-apikey-in-project'
-            )
-            if (!existsSync(allowFile)) {
-                console.error(
-                    'Warning: API key found in .chatfilerc/config.json. ' +
-                        'It is recommended to use OPENAI_API_KEY environment variable instead. ' +
-                        'To suppress this warning, create .chatfilerc/allow-apikey-in-project marker file.'
-                )
-            }
-        }
-
-        return merged
-    } catch (err) {
-        console.error(
-            'Failed to parse config file, using defaults:',
-            (err as Error).message
-        )
-        return defaultConfig
+        // 检查文件是否存在，若存在则读取并解析
+        await access(configPath, constants.F_OK)
+        const raw = await readFile(configPath, 'utf-8')
+        fileConfig = JSON.parse(raw) as Partial<Config>
+    } catch {
+        // 文件不存在或读取失败，使用默认值
     }
+
+    const merged: Config = {
+        ...defaultConfig,
+        ...fileConfig,
+    }
+
+    // apiKey 优先级：环境变量 > 配置文件
+    merged.apiKey = envApiKey || fileConfig.apiKey || ''
+
+    // 安全警告：当配置文件包含 apiKey 且未设置环境变量时
+    if (fileConfig.apiKey && fileConfig.apiKey.length > 0 && !envApiKey) {
+        const allowFile = join(
+            projectRoot,
+            '.chatfilerc',
+            'allow-apikey-in-project'
+        )
+        try {
+            await access(allowFile, constants.F_OK)
+            // 标记文件存在，不发出警告
+        } catch {
+            console.error(
+                'Warning: API key found in .chatfilerc/config.json. ' +
+                    'It is recommended to use OPENAI_API_KEY environment variable instead. ' +
+                    'To suppress this warning, create .chatfilerc/allow-apikey-in-project marker file.'
+            )
+        }
+    }
+
+    return merged
 }
 
-export function initConfig(): void {
+/**
+ * 异步初始化配置文件，返回 Promise<void>
+ */
+export async function initConfig(): Promise<void> {
     const cwd = process.cwd()
     const configDir = join(cwd, '.chatfilerc')
     const configPath = join(configDir, 'config.json')
 
-    if (!existsSync(configDir)) {
-        mkdirSync(configDir, { recursive: true })
+    // 创建配置目录（如果不存在）
+    try {
+        await mkdir(configDir, { recursive: true })
+    } catch {
+        // 忽略目录已存在或其他错误，后续会尝试写入文件
     }
 
-    if (existsSync(configPath)) {
+    // 检查配置文件是否已存在
+    try {
+        await access(configPath, constants.F_OK)
         console.error('.chatfilerc/config.json already exists.')
         return
+    } catch {
+        // 文件不存在，继续创建
     }
 
-    writeFileSync(configPath, JSON.stringify(configTemplate, null, 2) + '\n')
+    await writeFile(configPath, JSON.stringify(configTemplate, null, 2) + '\n')
     console.log(`Created config template at ${configPath}`)
 }

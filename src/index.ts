@@ -239,11 +239,11 @@ const defaultSystemPrompt = `你是一个有帮助的 AI 助手，用中文回�
 你的目标是让用户在纯文本终端或编辑器中，也能轻松阅读和理解你的每一个回复。
 `
 
-async function chatfile(
+export async function chatfile(
     chatFilePath: string,
     showThinking: boolean = false
 ): Promise<void> {
-    const config = loadConfig()
+    const config = await loadConfig()
 
     if (!existsSync(chatFilePath)) {
         console.warn(
@@ -381,4 +381,3 @@ async function chatfile(
     chatfile.appendRoleLine('USER')
 }
 
-await chatfile(process.argv[2])
