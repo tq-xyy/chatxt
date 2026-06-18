@@ -60,7 +60,8 @@ function parseToBlock(chatText: string) {
         { role: 'UNKNOWN', components: [] },
     ]
 
-    for (const line of chatText.split('\n')) {
+    for (let line of chatText.split('\n')) {
+        line = line.endsWith('\r') ? line.slice(0, -1) : line
         if (ROLE_SEPARATOR_REGEX.test(line)) {
             blocks.push({
                 role: ROLE_SEPARATOR_REGEX.exec(line)![1] as ChatRole,
@@ -145,6 +146,8 @@ class ChatFile {
 
         const messages: Message[] = []
 
+        const referredFile: Set<string> = new Set()
+
         for (const block of blocks) {
             if (
                 block.role === 'SYSTEM' ||
@@ -158,17 +161,36 @@ class ChatFile {
                     if (typeof comp === 'string') {
                         content += comp
                     } else if (comp.type === 'file') {
-                        suffixContent +=
-                            `File (${comp.arg}):\n` +
-                            (await readFile(
-                                path.join(
-                                    path.dirname(this.chatFilePath),
-                                    comp.arg
-                                ),
-                                'utf-8'
-                            )) +
-                            '\n'
-                        content += `@${comp.type}(${comp.arg})`
+                        const filePath = path.join(
+                            path.dirname(this.chatFilePath),
+                            comp.arg
+                        )
+                        if (!referredFile.has(filePath)) {
+                            referredFile.add(filePath)
+                            if (!existsSync(filePath)) {
+                                console.error(
+                                    'External file open failed: ' + filePath
+                                )
+                            } else {
+                                try {
+                                    const text = await readFile(
+                                        path.join(
+                                            path.dirname(this.chatFilePath),
+                                            comp.arg
+                                        ),
+                                        'utf-8'
+                                    )
+
+                                    suffixContent += `File (${comp.arg}):\n${text}\n`
+                                } catch (err) {
+                                    console.error(
+                                        `External file open failed: ${filePath} (${(err as Error).toString()})`
+                                    )
+                                }
+                            }
+                        }
+
+                        content += `${comp.arg}`
                     } else {
                         content += `@${comp.type}(${comp.arg})`
                     }
