@@ -187,13 +187,15 @@ class ChatFile {
 
 class ProgressReporter {
     private displayed: number = 0
+    prompt: string
 
     /**
      * @param showProgress 是否启用进度显示，默认为 true
      */
-    constructor() {
+    constructor(prompt: string = 'Generating...') {
         this.displayed = 0
-        process.stdout.write('Generating... 0 tokens (Ctrl+C to cancel)')
+        this.prompt = prompt
+        process.stdout.write(this.prompt + ' 0 tokens (Ctrl+C to cancel)')
     }
 
     /**
@@ -205,7 +207,7 @@ class ProgressReporter {
         process.stdout.clearLine?.(0)
         process.stdout.cursorTo?.(0)
         process.stdout.write(
-            `Generating... ${this.displayed} tokens (Ctrl+C to cancel)`
+            `${this.prompt} ${this.displayed} tokens (Ctrl+C to cancel)`
         )
     }
 
@@ -217,6 +219,25 @@ class ProgressReporter {
         process.stdout.cursorTo?.(0)
     }
 }
+
+const defaultSystemPrompt = `你是一个有帮助的 AI 助手，用中文回应用户。
+
+重要：本对话环境为纯文本，完全不支持 Markdown 渲染。你必须遵守以下格式约定：
+- 禁止使用任何 Markdown 格式符号，尤其是 ** 加粗、* 斜体、# 标题、表格等。
+- 用短横线 "-" 或数字 "1." 组织列表，列表项之间无需额外空行。
+- 用冒号引出说明、定义或举例，如：“注意：这里要小心”。
+- 用空行分隔不同段落或逻辑块，保持版面清晰。
+- 需要展示代码时，使用三个反引号包裹，并在开头标记语言，例如：\`\`\`python。
+- 避免使用连续的特殊符号作为装饰线，除非用于分隔。
+
+在内容组织上：
+- 先给出直接、简明的答案或结论，再按需补充细节或推理过程。
+- 如果有多个要点，优先使用列表形式。
+- 对复杂问题，可以用小标题式的短文（例如：“原因：”、“解决方法：”）来引导，但不要使用 # 或 ## 符号，直接书写文字即可。
+- 保持语气自然、专业、有帮助，但不必寒暄。
+
+你的目标是让用户在纯文本终端或编辑器中，也能轻松阅读和理解你的每一个回复。
+`
 
 async function chatfile(
     chatFilePath: string,
@@ -230,7 +251,7 @@ async function chatfile(
         )
         const content = [
             `----- CHAT ROLE: SYSTEM -----`,
-            'You are a helpful AI assistant.\n',
+            defaultSystemPrompt,
             `----- CHAT ROLE: USER -----`,
             '',
         ].join('\n')
@@ -283,7 +304,7 @@ async function chatfile(
     let reasoningStartFlag = false
     let answerStartFlag = false
 
-    const reporter = new ProgressReporter()
+    let reporter: ProgressReporter | null = null
 
     while (true) {
         const { done, value } = await reader.read()
@@ -305,34 +326,39 @@ async function chatfile(
                 const chunk: ChatCompletionChunk = JSON.parse(data)
                 // 处理 delta
                 for (const choice of chunk.choices) {
-                    if (showThinking) {
-                        if (
-                            choice.delta?.reasoning_content &&
-                            !reasoningStartFlag
-                        ) {
+                    if (
+                        choice.delta?.reasoning_content &&
+                        !reasoningStartFlag
+                    ) {
+                        if (showThinking) {
                             chatfile.appendRoleLine('THINKING')
-                            reasoningStartFlag = true
                         }
-                        if (choice.delta?.reasoning_content) {
+                        reporter = new ProgressReporter('Thinking...')
+                        reasoningStartFlag = true
+                    }
+                    if (choice.delta?.reasoning_content) {
+                        if (showThinking) {
                             chatfile.appendContent(
                                 choice.delta.reasoning_content
                             )
-                            reporter.update(1)
                         }
+                        reporter?.update(1)
                     }
 
                     if (choice.delta?.content && !answerStartFlag) {
                         chatfile.appendRoleLine('ASSISTANT')
                         answerStartFlag = true
+                        reporter?.finish()
+                        reporter = new ProgressReporter('Generating Answer...')
                     }
                     if (choice.delta?.content) {
                         chatfile.appendContent(choice.delta.content)
-                        reporter.update(1)
+                        reporter?.update(1)
                     }
                 }
 
                 if (chunk.usage) {
-                    reporter.finish()
+                    reporter?.finish()
                     console.log(
                         `Used ${chunk.usage.total_tokens} tokens, ` +
                             `${chunk.usage.prompt_tokens} for input ` +
@@ -343,7 +369,7 @@ async function chatfile(
                                 : '.')
                     )
                     console.log(
-                        `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model)} yuan.`
+                        `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model).toFixed(7)} yuan.`
                     )
                 }
             } catch (e) {
