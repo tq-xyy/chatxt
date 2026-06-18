@@ -1,3 +1,4 @@
+import { existsSync } from 'fs'
 import { readFile, appendFile, writeFile } from 'fs/promises'
 import * as path from 'path'
 
@@ -8,7 +9,7 @@ import type {
 } from './llmapi'
 import { computeTokenCostCNY } from './llmapi'
 import { loadConfig } from './config'
-import { existsSync } from 'fs'
+import { parseSSEStream } from './utils/sseStream'
 
 type ChatRole =
     | 'UNKNOWN'
@@ -288,6 +289,7 @@ export async function chatfile(
             messages,
             stream: true,
             stream_options: { include_usage: true },
+            reasoning_effort: 'max',
         } as ChatCompletionRequest),
     })
 
@@ -297,90 +299,54 @@ export async function chatfile(
         return
     }
 
-    const reader = resp.body?.getReader()
-
-    if (!reader) {
-        console.error(`HTTP stream reader unavailable.`)
-        return
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = '' // 缓冲区，处理跨 chunk 的行
-
     let reasoningStartFlag = false
     let answerStartFlag = false
 
     let reporter: ProgressReporter | null = null
 
-    while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        // 保留最后一个不完整的行
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed || !trimmed.startsWith('data:')) continue
-
-            const data = trimmed.slice(5).trim()
-            if (data === '[DONE]') break // 流结束标记
-
-            try {
-                const chunk: ChatCompletionChunk = JSON.parse(data)
-                // 处理 delta
-                for (const choice of chunk.choices) {
-                    if (
-                        choice.delta?.reasoning_content &&
-                        !reasoningStartFlag
-                    ) {
-                        if (showThinking) {
-                            chatfile.appendRoleLine('THINKING')
-                        }
-                        reporter = new ProgressReporter('Thinking...')
-                        reasoningStartFlag = true
-                    }
-                    if (choice.delta?.reasoning_content) {
-                        if (showThinking) {
-                            chatfile.appendContent(
-                                choice.delta.reasoning_content
-                            )
-                        }
-                        reporter?.update(1)
-                    }
-
-                    if (choice.delta?.content && !answerStartFlag) {
-                        chatfile.appendRoleLine('ASSISTANT')
-                        answerStartFlag = true
-                        reporter?.finish()
-                        reporter = new ProgressReporter('Generating Answer...')
-                    }
-                    if (choice.delta?.content) {
-                        chatfile.appendContent(choice.delta.content)
-                        reporter?.update(1)
-                    }
+    for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
+        // 处理 delta
+        for (const choice of chunk.choices) {
+            if (choice.delta?.reasoning_content && !reasoningStartFlag) {
+                if (showThinking) {
+                    chatfile.appendRoleLine('THINKING')
                 }
-
-                if (chunk.usage) {
-                    reporter?.finish()
-                    console.log(
-                        `Used ${chunk.usage.total_tokens} tokens, ` +
-                            `${chunk.usage.prompt_tokens} for input ` +
-                            `(${chunk.usage.prompt_cache_hit_tokens} cached)` +
-                            ` and ${chunk.usage.completion_tokens} for output` +
-                            (chunk.usage.completion_tokens_details
-                                ? ` (${chunk.usage.completion_tokens_details?.reasoning_tokens} for thinking).`
-                                : '.')
-                    )
-                    console.log(
-                        `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model).toFixed(7)} yuan.`
-                    )
-                }
-            } catch (e) {
-                console.error('Parse chunk failed:', data, e)
+                reporter = new ProgressReporter('Thinking...')
+                reasoningStartFlag = true
             }
+            if (choice.delta?.reasoning_content) {
+                if (showThinking) {
+                    chatfile.appendContent(choice.delta.reasoning_content)
+                }
+                reporter?.update(1)
+            }
+
+            if (choice.delta?.content && !answerStartFlag) {
+                chatfile.appendRoleLine('ASSISTANT')
+                answerStartFlag = true
+                reporter?.finish()
+                reporter = new ProgressReporter('Generating Answer...')
+            }
+            if (choice.delta?.content) {
+                chatfile.appendContent(choice.delta.content)
+                reporter?.update(1)
+            }
+        }
+
+        if (chunk.usage) {
+            reporter?.finish()
+            console.log(
+                `Used ${chunk.usage.total_tokens} tokens, ` +
+                    `${chunk.usage.prompt_tokens} for input ` +
+                    `(${chunk.usage.prompt_cache_hit_tokens} cached)` +
+                    ` and ${chunk.usage.completion_tokens} for output` +
+                    (chunk.usage.completion_tokens_details
+                        ? ` (${chunk.usage.completion_tokens_details?.reasoning_tokens} for thinking).`
+                        : '.')
+            )
+            console.log(
+                `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model).toFixed(7)} yuan.`
+            )
         }
     }
 
