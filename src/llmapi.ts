@@ -1,18 +1,18 @@
 // ======================== 消息类型 ========================
 
-export interface SystemMessage {
+interface SystemMessage {
     content: string
     role: 'system'
     name?: string
 }
 
-export interface UserMessage {
+interface UserMessage {
     content: string
     role: 'user'
     name?: string
 }
 
-export interface AssistantMessage {
+interface AssistantMessage {
     content: string | null // 必需，但可为 null
     role: 'assistant'
     name?: string
@@ -20,7 +20,7 @@ export interface AssistantMessage {
     reasoning_content?: string | null // Beta，可为 null
 }
 
-export interface ToolMessage {
+interface ToolMessage {
     content: string
     role: 'tool'
     tool_call_id: string
@@ -34,15 +34,15 @@ export type Message =
 
 // ======================== 请求参数 ========================
 
-export interface ThinkingConfig {
+interface ThinkingConfig {
     type?: 'enabled' | 'disabled'
 }
 
-export interface ResponseFormat {
+interface ResponseFormat {
     type?: 'text' | 'json_object'
 }
 
-export interface StreamOptions {
+interface StreamOptions {
     include_usage?: boolean
 }
 
@@ -53,16 +53,16 @@ export interface FunctionDefinition {
     strict?: boolean
 }
 
-export interface Tool {
+interface Tool {
     type: 'function'
     function: FunctionDefinition
 }
 
-export interface NamedToolChoiceFunction {
+interface NamedToolChoiceFunction {
     name: string
 }
 
-export interface ChatCompletionNamedToolChoice {
+interface ChatCompletionNamedToolChoice {
     type: 'function'
     function: NamedToolChoiceFunction
 }
@@ -113,25 +113,25 @@ export interface ChatMessage {
     role: 'assistant'
 }
 
-export interface TopLogProb {
+interface TopLogProb {
     token: string
     logprob: number
     bytes: number[] | null
 }
 
-export interface LogProbToken {
+interface LogProbToken {
     token: string
     logprob: number
     bytes: number[] | null
     top_logprobs: TopLogProb[]
 }
 
-export interface LogProbs {
+interface LogProbs {
     content: LogProbToken[] | null
     reasoning_content?: LogProbToken[] | null
 }
 
-export interface Choice {
+interface Choice {
     finish_reason:
         | 'stop'
         | 'length'
@@ -143,11 +143,11 @@ export interface Choice {
     logprobs: LogProbs | null
 }
 
-export interface CompletionTokensDetails {
+interface CompletionTokensDetails {
     reasoning_tokens?: number
 }
 
-export interface Usage {
+interface Usage {
     completion_tokens: number
     prompt_tokens: number
     prompt_cache_hit_tokens: number
@@ -168,13 +168,13 @@ export interface ChatCompletionResponse {
 }
 
 // ---------- 流式 chunk ----------
-export interface ChoiceDelta {
+interface ChoiceDelta {
     content: string | null // 必需，但可为 null
     reasoning_content?: string | null
     role?: 'assistant'
 }
 
-export interface ChoiceChunk {
+interface ChoiceChunk {
     delta: ChoiceDelta
     logprobs: LogProbs | null
     finish_reason:

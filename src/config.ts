@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs'
+import { join, dirname } from 'path'
 
 export interface Config {
     endpoint: string
