@@ -9,7 +9,7 @@
     },
     "scripts": {
         "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:commander",
-        "dev": "esno src/index.ts",
+        "test": "esno src/promptBuilder.ts test2.ignored.chat.txt",
         "lint": "prettier -w src package.json"
     },
     "keywords": [],

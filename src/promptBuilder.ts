@@ -1,7 +1,14 @@
-import { readFile } from 'fs/promises'
-import type { Message } from './llmapi'
-
+import { readFile, appendFile, writeFile } from 'fs/promises'
 import * as path from 'path'
+
+import type {
+    Message,
+    ChatCompletionRequest,
+    ChatCompletionChunk,
+} from './llmapi'
+import { computeTokenCostCNY } from './llmapi'
+import { loadConfig } from './config'
+import { existsSync } from 'fs'
 
 type ChatRole =
     | 'UNKNOWN'
@@ -22,9 +29,11 @@ const VALID_ROLES: ChatRole[] = [
     'PIPE',
 ]
 
-type DirectiveType = 'file' | 'pipe' | 'tool' | 'include'
+type DirectiveType = 'file' //| 'pipe' | 'tool' | 'include'
 
-const VALID_DIRECTIVES: DirectiveType[] = ['file', 'pipe', 'tool', 'include']
+const VALID_DIRECTIVES: DirectiveType[] = [
+    'file', //'pipe', 'tool', 'include'
+]
 
 interface Directive {
     type: DirectiveType
@@ -93,51 +102,257 @@ function parseToBlock(chatText: string) {
     return blocks
 }
 
-export async function buildPromptFromChatFile(
+class ChatFile {
     chatFilePath: string
-): Promise<Message[]> {
-    const chatText = await readFile(chatFilePath, 'utf-8')
+    private writeBuffer: string
+    private writeTimer: ReturnType<typeof setTimeout> | null = null
 
-    const blocks = parseToBlock(chatText)
-
-    const messages: Message[] = []
-
-    for (const block of blocks) {
-        if (
-            block.role === 'SYSTEM' ||
-            block.role === 'USER' ||
-            block.role === 'ASSISTANT'
-        ) {
-            let content = ''
-            let suffixContent = ''
-
-            for (const comp of block.components) {
-                if (typeof comp === 'string') {
-                    content += comp
-                } else if (comp.type === 'file') {
-                    suffixContent +=
-                        `File (${comp.arg}):\n` +
-                        (await readFile(
-                            path.join(path.dirname(chatFilePath), comp.arg),
-                            'utf-8'
-                        )) +
-                        '\n'
-                    content += `@${comp.type}(${comp.arg})`
-                } else {
-                    content += `@${comp.type}(${comp.arg})`
-                }
-            }
-
-            messages.push({
-                role: block.role.toLowerCase() as
-                    | 'system'
-                    | 'user'
-                    | 'assistant',
-                content: content.trimEnd() + '\n\n' + suffixContent.trimEnd(),
-            })
-        }
+    constructor(chatFilePath: string) {
+        this.chatFilePath = chatFilePath
+        this.writeBuffer = ''
     }
-    return messages
+
+    private debounceWrite() {
+        if (this.writeTimer) return
+        this.writeTimer = setTimeout(async () => {
+            const buffer = this.writeBuffer
+            this.writeBuffer = ''
+            await appendFile(this.chatFilePath, buffer, 'utf-8')
+            this.writeTimer = null
+        }, 16)
+    }
+
+    async appendRoleLine(role: ChatRole) {
+        this.writeBuffer += `\n\n----- CHAT ROLE: ${role} -----\n`
+        this.debounceWrite()
+    }
+
+    async appendContent(content: string) {
+        this.writeBuffer += content
+        this.debounceWrite()
+    }
+
+    async buildPrompt(): Promise<Message[]> {
+        const chatText = await readFile(this.chatFilePath, 'utf-8')
+
+        const blocks = parseToBlock(chatText)
+
+        const messages: Message[] = []
+
+        for (const block of blocks) {
+            if (
+                block.role === 'SYSTEM' ||
+                block.role === 'USER' ||
+                block.role === 'ASSISTANT'
+            ) {
+                let content = ''
+                let suffixContent = ''
+
+                for (const comp of block.components) {
+                    if (typeof comp === 'string') {
+                        content += comp
+                    } else if (comp.type === 'file') {
+                        suffixContent +=
+                            `File (${comp.arg}):\n` +
+                            (await readFile(
+                                path.join(
+                                    path.dirname(this.chatFilePath),
+                                    comp.arg
+                                ),
+                                'utf-8'
+                            )) +
+                            '\n'
+                        content += `@${comp.type}(${comp.arg})`
+                    } else {
+                        content += `@${comp.type}(${comp.arg})`
+                    }
+                }
+
+                messages.push({
+                    role: block.role.toLowerCase() as
+                        | 'system'
+                        | 'user'
+                        | 'assistant',
+                    content:
+                        content.trimEnd() +
+                        (suffixContent.length > 0
+                            ? '\n\n' + suffixContent.trimEnd()
+                            : ''),
+                })
+            }
+        }
+        return messages
+    }
 }
 
-console.log(await buildPromptFromChatFile('./test.ignored.chat.md'))
+class ProgressReporter {
+    private displayed: number = 0
+
+    /**
+     * @param showProgress 是否启用进度显示，默认为 true
+     */
+    constructor() {
+        this.displayed = 0
+        process.stdout.write('Generating... 0 tokens (Ctrl+C to cancel)')
+    }
+
+    /**
+     * 更新进度，增加 token 数量并在满足条件时刷新显示
+     * @param delta 本次新增的 token 数量
+     */
+    update(delta: number): void {
+        this.displayed += delta
+        process.stdout.clearLine?.(0)
+        process.stdout.cursorTo?.(0)
+        process.stdout.write(
+            `Generating... ${this.displayed} tokens (Ctrl+C to cancel)`
+        )
+    }
+
+    /**
+     * 完成进度，清空当前行并输出最终结果
+     */
+    finish(): void {
+        process.stdout.clearLine?.(0)
+        process.stdout.cursorTo?.(0)
+    }
+}
+
+async function chatfile(
+    chatFilePath: string,
+    showThinking: boolean = false
+): Promise<void> {
+    const config = loadConfig()
+
+    if (!existsSync(chatFilePath)) {
+        console.warn(
+            `${chatFilePath} don't exist. Automatically create a none file.`
+        )
+        const content = [
+            `----- CHAT ROLE: SYSTEM -----`,
+            'You are a helpful AI assistant.\n',
+            `----- CHAT ROLE: USER -----`,
+            '',
+        ].join('\n')
+        await writeFile(chatFilePath, content, 'utf-8')
+        return
+    }
+
+    const chatfile = new ChatFile(chatFilePath)
+
+    const messages = await chatfile.buildPrompt()
+
+    if (
+        messages.at(-1)?.role !== 'user' ||
+        (messages.at(-1)?.content?.trimEnd().length || 0) < 1
+    ) {
+        console.warn('No user input.')
+        return
+    }
+
+    const resp = await fetch(`${config.endpoint}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+            model: config.model,
+            messages,
+            stream: true,
+            stream_options: { include_usage: true },
+        } as ChatCompletionRequest),
+    })
+
+    if (!resp.ok) {
+        const errorText = await resp.text()
+        console.error(`HTTP ${resp.status}: ${errorText}`)
+        return
+    }
+
+    const reader = resp.body?.getReader()
+
+    if (!reader) {
+        console.error(`HTTP stream reader unavailable.`)
+        return
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = '' // 缓冲区，处理跨 chunk 的行
+
+    let reasoningStartFlag = false
+    let answerStartFlag = false
+
+    const reporter = new ProgressReporter()
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        // 保留最后一个不完整的行
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed || !trimmed.startsWith('data:')) continue
+
+            const data = trimmed.slice(5).trim()
+            if (data === '[DONE]') break // 流结束标记
+
+            try {
+                const chunk: ChatCompletionChunk = JSON.parse(data)
+                // 处理 delta
+                for (const choice of chunk.choices) {
+                    if (showThinking) {
+                        if (
+                            choice.delta?.reasoning_content &&
+                            !reasoningStartFlag
+                        ) {
+                            chatfile.appendRoleLine('THINKING')
+                            reasoningStartFlag = true
+                        }
+                        if (choice.delta?.reasoning_content) {
+                            chatfile.appendContent(
+                                choice.delta.reasoning_content
+                            )
+                            reporter.update(1)
+                        }
+                    }
+
+                    if (choice.delta?.content && !answerStartFlag) {
+                        chatfile.appendRoleLine('ASSISTANT')
+                        answerStartFlag = true
+                    }
+                    if (choice.delta?.content) {
+                        chatfile.appendContent(choice.delta.content)
+                        reporter.update(1)
+                    }
+                }
+
+                if (chunk.usage) {
+                    reporter.finish()
+                    console.log(
+                        `Used ${chunk.usage.total_tokens} tokens, ` +
+                            `${chunk.usage.prompt_tokens} for input ` +
+                            `(${chunk.usage.prompt_cache_hit_tokens} cached)` +
+                            ` and ${chunk.usage.completion_tokens} for output` +
+                            (chunk.usage.completion_tokens_details
+                                ? ` (${chunk.usage.completion_tokens_details?.reasoning_tokens} for thinking).`
+                                : '.')
+                    )
+                    console.log(
+                        `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model)} yuan.`
+                    )
+                }
+            } catch (e) {
+                console.error('Parse chunk failed:', data, e)
+            }
+        }
+    }
+
+    chatfile.appendRoleLine('USER')
+}
+
+await chatfile(process.argv[2])
