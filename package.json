@@ -9,7 +9,6 @@
     },
     "scripts": {
         "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:commander",
-        "test": "esno src/cli.ts test.ignored.chat.md -t",
         "lint": "prettier -w src package.json tsconfig.json"
     },
     "keywords": [],

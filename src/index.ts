@@ -133,7 +133,12 @@ class ChatFile {
     }
 
     async buildPrompt(): Promise<Message[]> {
-        const chatText = await readFile(this.chatFilePath, 'utf-8')
+        let chatText = await readFile(this.chatFilePath, 'utf-8')
+
+        // 忽略 shebang 行
+        if (chatText.startsWith('#!')) {
+            chatText = chatText.replace(/^#![^\n]*\n?/, '')
+        }
 
         const blocks = parseToBlock(chatText)
 
@@ -250,6 +255,7 @@ export async function chatfile(
             `${chatFilePath} don't exist. Automatically create a none file.`
         )
         const content = [
+            `#!/usr/bin/env chatfile`,
             `----- CHAT ROLE: SYSTEM -----`,
             defaultSystemPrompt,
             `----- CHAT ROLE: USER -----`,
@@ -380,4 +386,3 @@ export async function chatfile(
 
     chatfile.appendRoleLine('USER')
 }
-

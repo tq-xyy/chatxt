@@ -18,7 +18,6 @@ program
     )
     .action(async (file, options) => {
         // 默认行为：执行 complete 子命令
-        console.log(file)
         if (!file) {
             console.error('Error: missing file argument')
             process.exit(1)
