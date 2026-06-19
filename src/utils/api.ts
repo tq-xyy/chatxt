@@ -1,14 +1,15 @@
 import { Config } from '../config'
-import { ChatCompletionRequest, Message } from '../llmapi'
+import { ChatCompletionRequest, Message, Tool } from '../llmapi'
 
 export async function chatCompletion(
     messages: Message[],
     config: Config,
-    stream: boolean = true
+    stream: boolean = true,
+    tools: Tool[] | null = null
 ) {
     const body: Partial<ChatCompletionRequest> = {
         model: config.model,
-        thinking: {},
+        thinking: { type: 'enabled' },
         reasoning_effort:
             config.thinking_effort as ChatCompletionRequest['reasoning_effort'],
         messages,
@@ -17,6 +18,10 @@ export async function chatCompletion(
     if (stream) {
         body.stream = true
         body.stream_options = { include_usage: true }
+    }
+
+    if (tools) {
+        body.tools = tools
     }
 
     const resp = await fetch(`${config.endpoint}/chat/completions`, {
@@ -29,13 +34,16 @@ export async function chatCompletion(
     })
 
     if (!resp.ok) {
-        const errorText = await resp.text()
+        let errorText = await resp.text()
         try {
             const errorJSON = JSON.parse(errorText)
-            throw new Error(`API Request Failed, error message: ${errorJSON.error.message}`)
-        } catch {
-            throw new Error(`HTTP ${resp.status}: ${errorText}`)
-        }
+            console.log(errorJSON)
+            errorText = errorJSON.error.message
+        } catch {}
+
+        throw new Error(
+            `API Request Failed (${resp.status}), error message: ${errorText}`
+        )
     }
 
     return resp

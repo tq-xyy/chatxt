@@ -2,10 +2,7 @@ import { existsSync } from 'fs'
 import { readFile, appendFile, writeFile } from 'fs/promises'
 import * as path from 'path'
 
-import type {
-    Message,
-    ChatCompletionChunk,
-} from './llmapi'
+import type { Message, ChatCompletionChunk } from './llmapi'
 import { computeTokenCostCNY } from './llmapi'
 import { loadConfig } from './config'
 import { parseSSEStream } from './utils/sseStream'
@@ -281,7 +278,6 @@ export async function chatfile(
         console.warn('No user input.')
         return
     }
-
 
     const resp = await chatCompletion(messages, config)
 
