@@ -4,12 +4,13 @@ import * as path from 'path'
 
 import type {
     Message,
-    ChatCompletionRequest,
     ChatCompletionChunk,
 } from './llmapi'
 import { computeTokenCostCNY } from './llmapi'
 import { loadConfig } from './config'
 import { parseSSEStream } from './utils/sseStream'
+import { defaultSystemPrompt } from './utils/prompt'
+import { chatCompletion } from './utils/api'
 
 type ChatRole =
     | 'UNKNOWN'
@@ -248,25 +249,6 @@ class ProgressReporter {
     }
 }
 
-const defaultSystemPrompt = `你是一个有帮助的 AI 助手，用中文回应用户。
-
-重要：本对话环境为纯文本，完全不支持 Markdown 渲染。你必须遵守以下格式约定：
-- 禁止使用任何 Markdown 格式符号，尤其是 ** 加粗、* 斜体、# 标题、表格等。
-- 用短横线 "-" 或数字 "1." 组织列表，列表项之间无需额外空行。
-- 用冒号引出说明、定义或举例，如：“注意：这里要小心”。
-- 用空行分隔不同段落或逻辑块，保持版面清晰。
-- 需要展示代码时，使用三个反引号包裹，并在开头标记语言，例如：\`\`\`python。
-- 避免使用连续的特殊符号作为装饰线，除非用于分隔。
-
-在内容组织上：
-- 先给出直接、简明的答案或结论，再按需补充细节或推理过程。
-- 如果有多个要点，优先使用列表形式。
-- 对复杂问题，可以用小标题式的短文（例如：“原因：”、“解决方法：”）来引导，但不要使用 # 或 ## 符号，直接书写文字即可。
-- 保持语气自然、专业、有帮助，但不必寒暄。
-
-你的目标是让用户在纯文本终端或编辑器中，也能轻松阅读和理解你的每一个回复。
-`
-
 export async function chatfile(
     chatFilePath: string,
     showThinking: boolean = false
@@ -300,26 +282,8 @@ export async function chatfile(
         return
     }
 
-    const resp = await fetch(`${config.endpoint}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-            model: config.model,
-            messages,
-            stream: true,
-            stream_options: { include_usage: true },
-            reasoning_effort: 'max',
-        } as ChatCompletionRequest),
-    })
 
-    if (!resp.ok) {
-        const errorText = await resp.text()
-        console.error(`HTTP ${resp.status}: ${errorText}`)
-        return
-    }
+    const resp = await chatCompletion(messages, config)
 
     let reasoningStartFlag = false
     let answerStartFlag = false
@@ -335,6 +299,7 @@ export async function chatfile(
                 }
                 reporter = new ProgressReporter('Thinking...')
                 reasoningStartFlag = true
+                answerStartFlag = false
             }
             if (choice.delta?.reasoning_content) {
                 if (showThinking) {
@@ -346,6 +311,7 @@ export async function chatfile(
             if (choice.delta?.content && !answerStartFlag) {
                 chatfile.appendRoleLine('ASSISTANT')
                 answerStartFlag = true
+                reasoningStartFlag = false
                 reporter?.finish()
                 reporter = new ProgressReporter('Generating Answer...')
             }

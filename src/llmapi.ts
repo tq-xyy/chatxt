@@ -12,12 +12,24 @@ interface UserMessage {
     name?: string
 }
 
+interface ToolCallFunction {
+    name: string
+    arguments: string
+}
+
+interface ToolCall {
+    id: string
+    type: 'function'
+    function: ToolCallFunction
+}
+
 interface AssistantMessage {
     content: string | null // 必需，但可为 null
     role: 'assistant'
     name?: string
     prefix?: boolean // Beta
     reasoning_content?: string | null // Beta，可为 null
+    tool_calls?: ToolCall[] | null // 可为 null
 }
 
 interface ToolMessage {
@@ -46,14 +58,14 @@ interface StreamOptions {
     include_usage?: boolean
 }
 
-export interface FunctionDefinition {
+interface FunctionDefinition {
     description?: string
     name: string
     parameters?: Record<string, any> // JSON Schema
     strict?: boolean
 }
 
-interface Tool {
+export interface Tool {
     type: 'function'
     function: FunctionDefinition
 }
@@ -76,7 +88,7 @@ export type ToolChoice =
 export interface ChatCompletionRequest {
     // 原生 /chat/completions 请求体
     messages: Message[] // Required
-    model: 'deepseek-v4-flash' | 'deepseek-v4-pro' // Required
+    model: string // Required, 'deepseek-v4-flash' | 'deepseek-v4-pro'
     thinking?: ThinkingConfig | null
     reasoning_effort?: 'high' | 'max' | null
     max_tokens?: number | null
@@ -94,24 +106,6 @@ export interface ChatCompletionRequest {
 }
 
 // ======================== 响应类型 ========================
-
-export interface ToolCallFunction {
-    name: string
-    arguments: string
-}
-
-export interface ToolCall {
-    id: string
-    type: 'function'
-    function: ToolCallFunction
-}
-
-export interface ChatMessage {
-    content: string | null
-    reasoning_content?: string | null
-    tool_calls?: ToolCall[]
-    role: 'assistant'
-}
 
 interface TopLogProb {
     token: string
@@ -139,7 +133,7 @@ interface Choice {
         | 'tool_calls'
         | 'insufficient_system_resource'
     index: number
-    message: ChatMessage
+    message: AssistantMessage
     logprobs: LogProbs | null
 }
 

@@ -5,6 +5,7 @@ export interface Config {
     endpoint: string
     model: string
     apiKey: string
+    thinking_effort: string
 }
 
 /**
@@ -27,8 +28,9 @@ async function findProjectRoot(startDir: string): Promise<string | null> {
 
 const configTemplate: Config = {
     endpoint: 'https://api.deepseek.com',
-    model: 'deepseek-v4-pro',
+    model: 'deepseek-v4-flash',
     apiKey: '',
+    thinking_effort: 'high',
 }
 
 /**
