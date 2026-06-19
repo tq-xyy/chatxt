@@ -2,12 +2,12 @@ import { existsSync } from 'fs'
 import { readFile, appendFile, writeFile } from 'fs/promises'
 import * as path from 'path'
 
-import type { Message, ChatCompletionChunk } from './llmapi'
-import { computeTokenCostCNY } from './llmapi'
+import type { Message, ChatCompletionChunk } from './types/openaiApi'
+import { computeTokenCostCNY } from './utils/computeCost'
 import { loadConfig } from './config'
 import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'
-import { chatCompletion } from './utils/api'
+import { chatCompletionStream } from './utils/api'
 
 type ChatRole =
     | 'UNKNOWN'
@@ -279,7 +279,7 @@ export async function chatfile(
         return
     }
 
-    const resp = await chatCompletion(messages, config)
+    const resp = await chatCompletionStream(messages, config)
 
     let reasoningStartFlag = false
     let answerStartFlag = false

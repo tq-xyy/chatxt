@@ -166,6 +166,7 @@ interface ChoiceDelta {
     content: string | null // 必需，但可为 null
     reasoning_content?: string | null
     role?: 'assistant'
+    tool_calls?: ToolCall[] | null // 可为 null
 }
 
 interface ChoiceChunk {
@@ -190,26 +191,4 @@ export interface ChatCompletionChunk {
     system_fingerprint: string
     object: 'chat.completion.chunk'
     usage?: Usage | null
-}
-
-// ======================== 工具函数 ========================
-
-export function computeTokenCostCNY(tokenUsage: Usage, model: string): number {
-    if (model === 'deepseek-v4-flash') {
-        return (
-            (tokenUsage.prompt_cache_hit_tokens * 0.02 +
-                tokenUsage.prompt_cache_miss_tokens * 1 +
-                tokenUsage.completion_tokens * 2) /
-            1_000_000
-        )
-    } else if (model === 'deepseek-v4-pro') {
-        return (
-            (tokenUsage.prompt_cache_hit_tokens * 0.025 +
-                tokenUsage.prompt_cache_miss_tokens * 3 +
-                tokenUsage.completion_tokens * 6) /
-            1_000_000
-        )
-    } else {
-        return -1.0
-    }
 }
