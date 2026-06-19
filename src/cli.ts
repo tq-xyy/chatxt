@@ -1,6 +1,6 @@
 import { Command } from 'commander'
 import { chatfile } from './index' // 你已有的 chatfile 函数
-import { initConfig } from './config'
+import { initConfig, loadConfig } from './config'
 
 import { version } from '../package.json'
 
@@ -11,19 +11,16 @@ program
     .description('Chatfile CLI – AI conversations as files')
     .version(version)
     .argument('<file>', '.chat.txt file to process, create if not available.')
-    .option('-q, --quiet', 'suppress all output except errors')
+    .option('-m, --model <model>', 'model to be used to generate')
+    .option('--endpoint <model>', 'the endpoint of model provider')
     .option(
         '-t, --show-thinking',
         'show reasoning chain in .chat.txt (if available)'
     )
     .action(async (file, options) => {
-        // 默认行为：执行 complete 子命令
-        if (!file) {
-            console.error('Error: missing file argument')
-            process.exit(1)
-        }
+        await loadConfig(options)
 
-        await chatfile(file, options.showThinking ?? false)
+        await chatfile(file, await loadConfig(options))
     })
 
 program

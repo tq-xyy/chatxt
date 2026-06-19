@@ -3,7 +3,7 @@ import { writeFile } from 'fs/promises'
 
 import type { ChatCompletionChunk } from './types/openaiApi'
 import { computeTokenCostCNY } from './utils/computeCost'
-import { loadConfig } from './config'
+import type { Config } from './config'
 import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'
 import { chatCompletionStream } from './utils/api'
@@ -46,10 +46,8 @@ class ProgressReporter {
 
 export async function chatfile(
     chatFilePath: string,
-    showThinking: boolean = false
+    config: Config
 ): Promise<void> {
-    const config = await loadConfig()
-
     if (!existsSync(chatFilePath)) {
         console.warn(
             `${chatFilePath} don't exist. Automatically create a none file.`
@@ -88,7 +86,7 @@ export async function chatfile(
         // 处理 delta
         for (const choice of chunk.choices) {
             if (choice.delta?.reasoning_content && !reasoningStartFlag) {
-                if (showThinking) {
+                if (config.showThinking) {
                     chatfile.appendRoleLine('THINKING')
                 }
                 reporter = new ProgressReporter('Thinking...')
@@ -96,7 +94,7 @@ export async function chatfile(
                 answerStartFlag = false
             }
             if (choice.delta?.reasoning_content) {
-                if (showThinking) {
+                if (config.showThinking) {
                     chatfile.appendContent(choice.delta.reasoning_content)
                 }
                 reporter?.update(1)

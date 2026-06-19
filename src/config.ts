@@ -5,7 +5,8 @@ export interface Config {
     endpoint: string
     model: string
     apiKey: string
-    thinking_effort: string
+    thinkingEffort: string
+    showThinking: boolean
 }
 
 /**
@@ -30,13 +31,17 @@ const configTemplate: Config = {
     endpoint: 'https://api.deepseek.com',
     model: 'deepseek-v4-flash',
     apiKey: '',
-    thinking_effort: 'high',
+    thinkingEffort: 'high',
+    showThinking: false,
 }
 
 /**
  * 异步加载配置，返回 Promise<Config>
+ * 优先级: 运行时配置 > 配置文件 > 默认配置
  */
-export async function loadConfig(): Promise<Config> {
+export async function loadConfig(
+    runtimeConfig?: Partial<Config>
+): Promise<Config> {
     const envApiKey = process.env.OPENAI_API_KEY || ''
     const defaultConfig: Config = {
         ...configTemplate,
@@ -61,9 +66,12 @@ export async function loadConfig(): Promise<Config> {
         // 文件不存在或读取失败，使用默认值
     }
 
+    runtimeConfig = runtimeConfig || {}
+
     const merged: Config = {
         ...defaultConfig,
         ...fileConfig,
+        ...runtimeConfig,
     }
 
     // apiKey 优先级：环境变量 > 配置文件
@@ -80,7 +88,7 @@ export async function loadConfig(): Promise<Config> {
             await access(allowFile, constants.F_OK)
             // 标记文件存在，不发出警告
         } catch {
-            console.error(
+            console.warn(
                 'Warning: API key found in .chatfilerc/config.json. ' +
                     'It is recommended to use OPENAI_API_KEY environment variable instead. ' +
                     'To suppress this warning, create .chatfilerc/allow-apikey-in-project marker file.'

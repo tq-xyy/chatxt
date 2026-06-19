@@ -15,7 +15,7 @@ export async function chatCompletionStream(
         model: config.model,
         thinking: { type: 'enabled' },
         reasoning_effort:
-            config.thinking_effort as ChatCompletionRequest['reasoning_effort'],
+            config.thinkingEffort as ChatCompletionRequest['reasoning_effort'],
         messages,
         stream: true,
         stream_options: { include_usage: true },
@@ -59,7 +59,7 @@ export async function chatCompletion(
         model: config.model,
         thinking: { type: 'enabled' },
         reasoning_effort:
-            config.thinking_effort as ChatCompletionRequest['reasoning_effort'],
+            config.thinkingEffort as ChatCompletionRequest['reasoning_effort'],
         messages,
     }
 
