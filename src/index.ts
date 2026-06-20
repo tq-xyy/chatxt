@@ -11,12 +11,16 @@ import { ChatFile } from './fileobj'
 
 class ProgressReporter {
     private displayed: number = 0
-    prompt: string
+    private prompt: string = ''
 
     /**
      * @param showProgress 是否启用进度显示，默认为 true
      */
     constructor(prompt: string = 'Generating...') {
+        this.switchTo(prompt)
+    }
+
+    public switchTo(prompt: string) {
         this.displayed = 0
         this.prompt = prompt
         process.stdout.write(this.prompt + ' 0 tokens (Ctrl+C to cancel)')
@@ -26,10 +30,9 @@ class ProgressReporter {
      * 更新进度，增加 token 数量并在满足条件时刷新显示
      * @param delta 本次新增的 token 数量
      */
-    update(delta: number): void {
+    public update(delta: number): void {
         this.displayed += delta
-        process.stdout.clearLine?.(0)
-        process.stdout.cursorTo?.(0)
+        this.clear()
         process.stdout.write(
             `${this.prompt} ${this.displayed} tokens (Ctrl+C to cancel)`
         )
@@ -38,7 +41,7 @@ class ProgressReporter {
     /**
      * 完成进度，清空当前行并输出最终结果
      */
-    finish(): void {
+    public clear(): void {
         process.stdout.clearLine?.(0)
         process.stdout.cursorTo?.(0)
     }
@@ -80,7 +83,8 @@ export async function chatfile(
     let reasoningStartFlag = false
     let answerStartFlag = false
 
-    let reporter: ProgressReporter | null = null
+    const reporter: ProgressReporter = new ProgressReporter('Requesting...')
+    const startTime = performance.now()
 
     for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
         // 处理 delta
@@ -89,7 +93,7 @@ export async function chatfile(
                 if (config.showThinking) {
                     chatfile.appendRoleLine('THINKING')
                 }
-                reporter = new ProgressReporter('Thinking...')
+                reporter.switchTo('Thinking...')
                 reasoningStartFlag = true
                 answerStartFlag = false
             }
@@ -97,24 +101,24 @@ export async function chatfile(
                 if (config.showThinking) {
                     chatfile.appendContent(choice.delta.reasoning_content)
                 }
-                reporter?.update(1)
+                reporter.update(1)
             }
 
             if (choice.delta?.content && !answerStartFlag) {
                 chatfile.appendRoleLine('ASSISTANT')
                 answerStartFlag = true
                 reasoningStartFlag = false
-                reporter?.finish()
-                reporter = new ProgressReporter('Generating Answer...')
+                reporter.clear()
+                reporter.switchTo('Generating Answer...')
             }
             if (choice.delta?.content) {
                 chatfile.appendContent(choice.delta.content)
-                reporter?.update(1)
+                reporter.update(1)
             }
         }
 
         if (chunk.usage) {
-            reporter?.finish()
+            reporter.clear()
             console.log(
                 `Used ${chunk.usage.total_tokens} tokens, ` +
                     `${chunk.usage.prompt_tokens} for input ` +
@@ -125,7 +129,8 @@ export async function chatfile(
                         : '.')
             )
             console.log(
-                `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model).toFixed(7)} yuan.`
+                `Time in total is ${Math.floor(performance.now() - startTime)}ms. ` +
+                    `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model).toFixed(7)} yuan.`
             )
         }
     }
