@@ -90,6 +90,7 @@ export async function chatfile(
         },
     }
     let sumToolCall: number = 0
+    const chatTurn = messages.filter(msg => msg.role === 'user').length
 
     let outputFlag: ChatRole | boolean = 'UNKNOWN'
 
@@ -135,7 +136,6 @@ export async function chatfile(
             if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
                 chatfile.appendRoleLine('ASSISTANT')
                 outputFlag = 'ASSISTANT'
-                reporter.clear()
                 reporter.setPrompt('Generating Answer...')
             }
             if (choice.delta?.content) {
@@ -148,14 +148,13 @@ export async function chatfile(
             if (choice.delta?.tool_calls && outputFlag !== 'TOOL') {
                 chatfile.appendRoleLine('TOOL')
                 outputFlag = 'TOOL'
-                reporter.clear()
                 reporter.setPrompt('Generating Function Call...')
             }
             if (choice.delta?.tool_calls) {
                 // 流式模式下一次迭代只输出一次工具调用
                 if (choice.delta.tool_calls[0].type === 'function') {
                     sumToolCall++
-                    choice.delta.tool_calls[0].id = `第${messages.length}轮对话的${sumToolCall}次工具调用`
+                    choice.delta.tool_calls[0].id = `${chatTurn}-${sumToolCall}`
                     chatfile.appendContent(
                         `\n${
                             choice.delta.tool_calls[0].function.name
@@ -234,4 +233,5 @@ export async function chatfile(
     )
 
     chatfile.appendRoleLine('USER')
+    await chatfile.flushBuffer()
 }

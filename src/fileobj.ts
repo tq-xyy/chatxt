@@ -129,6 +129,14 @@ export class ChatFile {
         }, 16)
     }
 
+    async flushBuffer() {
+        if (this.writeBuffer.length === 0) return
+        if (this.writeTimer) {
+            clearTimeout(this.writeTimer)
+        }
+        await appendFile(this.chatFilePath, this.writeBuffer, 'utf-8')
+    }
+
     async appendRoleLine(role: ChatRole) {
         this.writeBuffer += `\n\n----- CHAT ROLE: ${role} -----\n`
         this.debounceWrite()
@@ -139,7 +147,22 @@ export class ChatFile {
         this.debounceWrite()
     }
 
-    async rewriteChatBlockToMessage(
+    private convertPlainBlockToMessage(block: Block): Message {
+        let content = ''
+
+        for (const comp of block.components) {
+            // dont parse directives from non-user block
+            content +=
+                typeof comp === 'string' ? comp : `@${comp.type}(${comp.arg})`
+        }
+
+        return {
+            role: block.role.toLowerCase() as 'system' | 'user' | 'assistant',
+            content: content.trimEnd(),
+        }
+    }
+
+    private async applyDirectiveToMessage(
         block: Block
     ): Promise<[Message, Set<string>]> {
         let content = ''
@@ -211,7 +234,7 @@ export class ChatFile {
         ]
     }
 
-    parseToolBlockToToolCalls(block: Block): ToolCall[] {
+    private parseToolBlockToToolCalls(block: Block): ToolCall[] {
         const toolRegex = /^([\w\.]+)\s*\(([^)]+)\):\s*(.*)$/
 
         const toolCalls: ToolCall[] = []
@@ -234,7 +257,7 @@ export class ChatFile {
         return toolCalls
     }
 
-    parseToolResponseBlockToMessages(block: Block): Message[] {
+    private parseToolResponseBlockToMessages(block: Block): Message[] {
         const toolMessages: Message[] = []
 
         for (const line of block.components.join('').split('\n')) {
@@ -263,17 +286,16 @@ export class ChatFile {
         const tools = new Set<string>()
 
         for (const block of blocks) {
-            if (
-                block.role === 'SYSTEM' ||
-                block.role === 'USER' ||
-                block.role === 'ASSISTANT'
-            ) {
+            if (block.role === 'USER') {
                 const [msg, toolSet] =
-                    await this.rewriteChatBlockToMessage(block)
+                    await this.applyDirectiveToMessage(block)
                 for (const toolPath of toolSet) {
                     tools.add(toolPath)
                 }
                 messages.push(msg)
+            }
+            if (block.role === 'SYSTEM' || block.role === 'ASSISTANT') {
+                messages.push(this.convertPlainBlockToMessage(block))
             }
             if (block.role === 'TOOL') {
                 const lastMessage = messages[messages.length - 1]
