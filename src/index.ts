@@ -1,14 +1,16 @@
 import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
 
-import type { ChatCompletionChunk } from './types/openaiApi'
-import { computeTokenCostCNY } from './utils/computeCost'
+import type { ChatCompletionChunk, ToolCall } from './types/openaiApi'
+import { computeTokenCostCNY, mergeUsage } from './utils/computeCost'
 import type { Config } from './config'
 import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'
 import { chatCompletionStream } from './utils/api'
 import { ChatFile } from './fileobj'
 import type { ChatRole } from './fileobj'
+import { ToolRunner } from './tools/runner'
+import { mergeToolCallChunks } from './tools/streamhelper'
 
 class ProgressReporter {
     private displayed: number = 0
@@ -68,8 +70,11 @@ export async function chatfile(
     }
 
     const chatfile = new ChatFile(chatFilePath)
+    const toolRunner = new ToolRunner()
 
     const [messages, toolPaths] = await chatfile.buildPrompt()
+
+    await toolRunner.loadTools(toolPaths)
 
     if (
         messages.at(-1)?.role !== 'user' ||
@@ -79,59 +84,158 @@ export async function chatfile(
         return
     }
 
-    const resp = await chatCompletionStream(messages, config)
-
-    let outputFlag: ChatRole = 'UNKNOWN'
-
-    const reporter: ProgressReporter = new ProgressReporter('Requesting...')
     const startTime = performance.now()
 
-    for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
-        // 处理 delta
-        for (const choice of chunk.choices) {
-            if (choice.delta?.reasoning_content && outputFlag !== 'THINKING') {
-                if (config.showThinking) {
-                    chatfile.appendRoleLine('THINKING')
-                }
-                reporter.switchTo('Thinking...')
-                outputFlag = 'THINKING'
-            }
-            if (choice.delta?.reasoning_content) {
-                if (config.showThinking) {
-                    chatfile.appendContent(choice.delta.reasoning_content)
-                }
-                reporter.update(1)
-            }
+    const reporter: ProgressReporter = new ProgressReporter('Requesting...')
+    let sumUsage: NonNullable<ChatCompletionChunk['usage']> = {
+        completion_tokens: 0,
+        prompt_tokens: 0,
+        prompt_cache_hit_tokens: 0,
+        prompt_cache_miss_tokens: 0,
+        total_tokens: 0,
+        completion_tokens_details: {
+            reasoning_tokens: 0,
+        },
+    }
 
-            if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
-                chatfile.appendRoleLine('ASSISTANT')
-                outputFlag = 'ASSISTANT'
+    let outputFlag: ChatRole | boolean = 'UNKNOWN'
+
+    while (outputFlag !== false) {
+        const resp = await chatCompletionStream(
+            messages,
+            config,
+            toolRunner.getDefinitions()
+        )
+
+        const toolCalls: ToolCall[] = []
+        messages.push({
+            role: 'assistant',
+            reasoning_content: '',
+            content: '',
+        })
+
+        for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
+            // 合并 usage
+            if (chunk.usage) {
                 reporter.clear()
-                reporter.switchTo('Generating Answer...')
+                sumUsage = mergeUsage(sumUsage, chunk.usage)
             }
-            if (choice.delta?.content) {
-                chatfile.appendContent(choice.delta.content)
-                reporter.update(1)
-            }
-        }
 
-        if (chunk.usage) {
-            reporter.clear()
-            console.log(
-                `Used ${chunk.usage.total_tokens} tokens, ` +
-                    `${chunk.usage.prompt_tokens} for input ` +
-                    `(${chunk.usage.prompt_cache_hit_tokens} cached)` +
-                    ` and ${chunk.usage.completion_tokens} for output` +
-                    (chunk.usage.completion_tokens_details
-                        ? ` (${chunk.usage.completion_tokens_details?.reasoning_tokens} for thinking).`
-                        : '.')
-            )
-            console.log(
-                `Time in total is ${Math.floor(performance.now() - startTime)}ms. ` +
-                    `Estimated cost is ${computeTokenCostCNY(chunk.usage, config.model).toFixed(7)} yuan.`
-            )
+            for (const choice of chunk.choices) {
+                if (
+                    choice.delta?.reasoning_content &&
+                    outputFlag !== 'THINKING'
+                ) {
+                    if (config.showThinking) {
+                        chatfile.appendRoleLine('THINKING')
+                    }
+                    reporter.switchTo('Thinking...')
+                    outputFlag = 'THINKING'
+                }
+                if (choice.delta?.reasoning_content) {
+                    if (config.showThinking) {
+                        chatfile.appendContent(choice.delta.reasoning_content)
+                    }
+                    // @ts-expect-error
+                    messages[messages.length - 1].reasoning_content +=
+                        choice.delta.reasoning_content
+                    reporter.update(1)
+                }
+
+                if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
+                    chatfile.appendRoleLine('ASSISTANT')
+                    outputFlag = 'ASSISTANT'
+                    reporter.clear()
+                    reporter.switchTo('Generating Answer...')
+                }
+                if (choice.delta?.content) {
+                    chatfile.appendContent(choice.delta.content)
+
+                    messages[messages.length - 1].content +=
+                        choice.delta.content
+                    reporter.update(1)
+                }
+
+                if (choice.delta?.tool_calls && outputFlag !== 'TOOL') {
+                    chatfile.appendRoleLine('TOOL')
+                    outputFlag = 'TOOL'
+                    reporter.clear()
+                    reporter.switchTo('Generating Function Call...')
+                }
+                if (choice.delta?.tool_calls) {
+                    mergeToolCallChunks(toolCalls, choice.delta.tool_calls)
+                    if (choice.delta.tool_calls[0].type === 'function') {
+                        chatfile.appendContent(
+                            `\n${
+                                choice.delta.tool_calls[0].function.name
+                            } (${choice.delta.tool_calls[0].id}): `
+                        )
+                    } else {
+                        chatfile.appendContent(
+                            choice.delta.tool_calls[0].function.arguments
+                        )
+                    }
+                    reporter.update(1)
+                }
+
+                if (choice.finish_reason) {
+                    switch (choice.finish_reason) {
+                        case 'stop':
+                        case 'length':
+                            // do nothing
+                            outputFlag = false
+                            break
+                        case 'tool_calls':
+                            // @ts-expect-error
+                            messages[messages.length - 1].tool_calls =
+                                toolCalls
+                            const msgs = await toolRunner.executeAll(toolCalls)
+                            messages.push(...msgs)
+                            for (const msg of msgs) {
+                                if (msg.role === 'tool') {
+                                    chatfile.appendRoleLine('TOOLRESPONSE')
+                                    chatfile.appendContent(
+                                        `${msg.tool_call_id}: ${msg.content}`
+                                    )
+                                }
+                            }
+                            break
+                        case 'content_filter':
+                            console.warn(
+                                'stop by content filter, ' +
+                                    'dont ask for politics senstive or yellow content.'
+                            )
+                            outputFlag = false
+                            break
+                        case 'insufficient_system_resource':
+                            console.warn(
+                                'model provider system crush because of insufficient resource'
+                            )
+                            outputFlag = false
+                            break
+                        default:
+                            console.error(
+                                `unkonwn finish reason: ${choice.finish_reason}`
+                            )
+                            outputFlag = false
+                    }
+                    
+                }
+            }
         }
     }
+
+    console.log(
+        `Used ${sumUsage.total_tokens} tokens, ` +
+            `${sumUsage.prompt_tokens} for input ` +
+            `(${sumUsage.prompt_cache_hit_tokens} cached)` +
+            ` and ${sumUsage.completion_tokens} for output` +
+            ` (${sumUsage.completion_tokens_details?.reasoning_tokens} for thinking).`
+    )
+    console.log(
+        `Time in total is ${Math.floor(performance.now() - startTime)}ms. ` +
+            `Estimated cost is ${computeTokenCostCNY(sumUsage, config.model).toFixed(7)} yuan.`
+    )
 
     chatfile.appendRoleLine('USER')
 }

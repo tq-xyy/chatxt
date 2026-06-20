@@ -177,3 +177,6 @@ function ToJSONSchema(
         required,
     }
 }
+
+globalThis.serveAsTool = serveAsTool
+globalThis.ToJSONSchema = ToJSONSchema

@@ -12,15 +12,14 @@ interface UserMessage {
     name?: string
 }
 
-interface ToolCallFunction {
-    name: string
-    arguments: string
-}
-
 export interface ToolCall {
+    index: number
     id: string
     type: 'function'
-    function: ToolCallFunction
+    function: {
+        name: string
+        arguments: string
+    }
 }
 
 interface AssistantMessage {
@@ -137,17 +136,15 @@ interface Choice {
     logprobs: LogProbs | null
 }
 
-interface CompletionTokensDetails {
-    reasoning_tokens?: number
-}
-
 interface Usage {
     completion_tokens: number
     prompt_tokens: number
     prompt_cache_hit_tokens: number
     prompt_cache_miss_tokens: number
     total_tokens: number
-    completion_tokens_details?: CompletionTokensDetails
+    completion_tokens_details?: {
+        reasoning_tokens?: number
+    }
 }
 
 export interface ChatCompletionResponse {
@@ -162,11 +159,22 @@ export interface ChatCompletionResponse {
 }
 
 // ---------- 流式 chunk ----------
+
+export interface ToolCallChunk {
+    index: number
+    id?: string
+    type?: 'function'
+    function: {
+        name?: string
+        arguments: string
+    }
+}
+
 interface ChoiceDelta {
     content: string | null // 必需，但可为 null
     reasoning_content?: string | null
     role?: 'assistant'
-    tool_calls?: ToolCall[] | null // 可为 null
+    tool_calls?: ToolCallChunk[] | null // 可为 null
 }
 
 interface ChoiceChunk {

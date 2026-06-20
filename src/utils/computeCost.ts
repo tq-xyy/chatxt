@@ -2,6 +2,23 @@ import type { ChatCompletionResponse } from '../types/openaiApi'
 
 type Usage = NonNullable<ChatCompletionResponse['usage']>
 
+export function mergeUsage(a: Usage, b: Usage): Usage {
+    return {
+        completion_tokens: a.completion_tokens + b.completion_tokens,
+        prompt_tokens: a.prompt_tokens + b.prompt_tokens,
+        prompt_cache_hit_tokens:
+            a.prompt_cache_hit_tokens + b.prompt_cache_hit_tokens,
+        prompt_cache_miss_tokens:
+            a.prompt_cache_miss_tokens + b.prompt_cache_miss_tokens,
+        total_tokens: a.total_tokens + b.total_tokens,
+        completion_tokens_details: {
+            reasoning_tokens:
+                (a.completion_tokens_details?.reasoning_tokens ?? 0) +
+                (b.completion_tokens_details?.reasoning_tokens ?? 0),
+        },
+    }
+}
+
 export function computeTokenCostCNY(tokenUsage: Usage, model: string): number {
     if (model === 'deepseek-v4-flash') {
         return (

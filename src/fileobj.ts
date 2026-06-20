@@ -11,7 +11,8 @@ export type ChatRole =
     | 'ASSISTANT'
     | 'THINKING'
     | 'TOOL'
-    | 'PIPE'
+    // | 'PIPE'
+    | 'TOOLRESPONSE'
 
 const VALID_ROLES: ChatRole[] = [
     'UNKNOWN',
@@ -20,7 +21,8 @@ const VALID_ROLES: ChatRole[] = [
     'ASSISTANT',
     'THINKING',
     'TOOL',
-    'PIPE',
+    // 'PIPE',
+    'TOOLRESPONSE',
 ]
 
 type DirectiveType = 'file' | 'tool' //| 'pipe'  | 'include'
@@ -137,7 +139,7 @@ export class ChatFile {
         this.debounceWrite()
     }
 
-    async rewriteBlockToMessage(
+    async rewriteChatBlockToMessage(
         block: Block
     ): Promise<[Message, Set<string>]> {
         let content = ''
@@ -145,6 +147,13 @@ export class ChatFile {
         let toolSet = new Set<string>()
 
         for (const comp of block.components) {
+            if (block.role !== 'USER') {
+                content +=
+                    typeof comp === 'string'
+                        ? comp.trimEnd()
+                        : `@${comp.type}(${comp.arg})`
+                continue
+            }
             if (typeof comp === 'string') {
                 content += comp.trimEnd()
             } else if (comp.type === 'file') {
@@ -220,7 +229,8 @@ export class ChatFile {
                 block.role === 'USER' ||
                 block.role === 'ASSISTANT'
             ) {
-                const [msg, toolSet] = await this.rewriteBlockToMessage(block)
+                const [msg, toolSet] =
+                    await this.rewriteChatBlockToMessage(block)
                 for (const toolPath of toolSet) {
                     tools.add(toolPath)
                 }

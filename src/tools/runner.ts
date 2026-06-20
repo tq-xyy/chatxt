@@ -37,16 +37,10 @@ export class NodeToolExecutor implements ToolExecutor {
     private nodeArgs: string[]
     private runtimePath: string
 
-    /**
-     * @param nodePath    - Node.js 可执行文件路径（默认当前进程的 execPath）
-     * @param nodeArgs    - 额外 Node 参数（默认当前 execArgv，可保留 tsx 等加载器）
-     * @param runtimePath - tool-runtime.ts 路径，默认与本文件同目录
-     */
-    constructor(nodePath?: string, nodeArgs?: string[], runtimePath?: string) {
-        this.nodePath = nodePath ?? process.execPath
-        this.nodeArgs = nodeArgs ?? [...process.execArgv]
-        this.runtimePath =
-            runtimePath ?? path.resolve(import.meta.dirname, 'tool-runtime.ts')
+    constructor() {
+        this.nodePath = process.execPath
+        this.nodeArgs = [...process.execArgv]
+        this.runtimePath = path.dirname(import.meta.url) + '/tool-runtime.ts'
     }
 
     /** 内部通用子进程启动器 */
@@ -62,7 +56,7 @@ export class NodeToolExecutor implements ToolExecutor {
     }> {
         const { filePath, env, stdin, timeoutMs = 30_000 } = options
 
-        const args = [...this.nodeArgs, '-r', this.runtimePath, filePath]
+        const args = [...this.nodeArgs, '--import', this.runtimePath, filePath]
 
         const child = spawn(this.nodePath, args, {
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -216,5 +210,9 @@ export class ToolRunner {
             tool_call_id: id,
             content: stdout,
         }
+    }
+
+    async executeAll(toolCalls: ToolCall[]): Promise<Message[]> {
+        return await Promise.all(toolCalls.map(call => this.execute(call)))
     }
 }
