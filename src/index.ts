@@ -1,7 +1,7 @@
 import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
 
-import type { ChatCompletionChunk, ToolCall } from './types/openaiApi'
+import type { ChatCompletionChunk, ToolCall, Usage } from './types/openaiApi'
 import { computeTokenCostCNY, mergeUsage } from './utils/computeCost'
 import type { Config } from './config'
 import { parseSSEStream } from './utils/sseStream'
@@ -11,35 +11,66 @@ import { ChatFile } from './fileobj'
 import type { ChatRole } from './fileobj'
 import { ToolRunner } from './tools/runner'
 import { mergeToolCallChunks } from './tools/streamhelper'
+import { ProgressReporter } from './utils/progress'
 
-class ProgressReporter {
-    private displayed: number = 0
-    private prompt: string = ''
+import chalk from 'chalk'
 
-    constructor(prompt: string = 'Generating...') {
-        this.setPrompt(prompt)
+function printFinalStatus(status: {
+    usage: Usage
+    startTime: number
+    config: { model: string }
+    toolCallCount: number
+}): void {
+    const { usage, startTime, config, toolCallCount } = status
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
+
+    const fn = (n: number) => n.toLocaleString('en-US')
+
+    // 第一行：生成完成提示
+    console.log(chalk.green('✔ Generation completed.'))
+
+    // 第二行：Token 总计与分类
+    const cachedPart = usage.prompt_cache_hit_tokens
+        ? ' (' +
+          chalk.gray('cached ') +
+          chalk.gray(fn(usage.prompt_cache_hit_tokens)) +
+          ') '
+        : ''
+    const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens
+    const thinkingPart = reasoningTokens
+        ? ' (' +
+          chalk.magenta('thinking ') +
+          chalk.magenta(fn(reasoningTokens)) +
+          ')'
+        : ''
+    console.log(
+        chalk.white.bold('Total tokens: ') +
+            chalk.yellow(fn(usage.total_tokens)) +
+            chalk.italic(
+                '  ·  input for ' +
+                    chalk.blue(fn(usage.prompt_tokens)) +
+                    cachedPart +
+                    ', output for ' +
+                    chalk.blue(fn(usage.completion_tokens)) +
+                    thinkingPart
+            )
+    )
+
+    // 第三行：时间、预估花费、工具调用次数（如果有）
+    const cost = computeTokenCostCNY(usage, config.model)
+    let thirdLine =
+        chalk.white('Elapsed time: ') +
+        chalk.green(`${elapsed}s`) +
+        '  ·  ' +
+        chalk.white('Estimated cost: ') +
+        chalk.red(`¥${cost.toFixed(6)}`)
+    if (toolCallCount > 0) {
+        thirdLine +=
+            '  ·  ' +
+            chalk.white('Total tool calls: ') +
+            chalk.cyan(toolCallCount.toString())
     }
-
-    public setPrompt(prompt: string) {
-        this.prompt = prompt
-    }
-
-    /**
-     * 更新进度，增加 token 数量并在满足条件时刷新显示
-     * @param delta 本次新增的 token 数量
-     */
-    public update(delta: number): void {
-        this.displayed += delta
-        this.clear()
-        process.stdout.write(
-            `${this.prompt} ${this.displayed} tokens (Ctrl+C to cancel)`
-        )
-    }
-
-    public clear(): void {
-        process.stdout.clearLine(0)
-        process.stdout.cursorTo(0)
-    }
+    console.log(thirdLine)
 }
 
 export async function chatfile(
@@ -79,7 +110,7 @@ export async function chatfile(
     const startTime = performance.now()
 
     const reporter: ProgressReporter = new ProgressReporter('Requesting...')
-    let sumUsage: NonNullable<ChatCompletionChunk['usage']> = {
+    let sumUsage: Usage = {
         completion_tokens: 0,
         prompt_tokens: 0,
         prompt_cache_hit_tokens: 0,
@@ -216,21 +247,12 @@ export async function chatfile(
         }
     }
 
-    console.log(
-        `Used ${sumUsage.total_tokens} tokens, ` +
-            `${sumUsage.prompt_tokens} for input ` +
-            `(${sumUsage.prompt_cache_hit_tokens} cached)` +
-            ` and ${sumUsage.completion_tokens} for output` +
-            ` (${sumUsage.completion_tokens_details?.reasoning_tokens} for thinking).`
-    )
-    if (sumToolCall > 0) {
-        console.log(`Call Tool for ${sumToolCall} times.`)
-    }
-    console.log(
-        `Time in total is ${Math.floor(performance.now() - startTime)}ms. ` +
-            `For model ${config.model}, ` +
-            `estimated cost is ${computeTokenCostCNY(sumUsage, config.model).toFixed(7)} yuan.`
-    )
+    printFinalStatus({
+        startTime,
+        usage: sumUsage,
+        toolCallCount: sumToolCall,
+        config,
+    })
 
     chatfile.appendRoleLine('USER')
     await chatfile.flushBuffer()

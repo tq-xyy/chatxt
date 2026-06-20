@@ -136,7 +136,7 @@ interface Choice {
     logprobs: LogProbs | null
 }
 
-interface Usage {
+export interface Usage {
     completion_tokens: number
     prompt_tokens: number
     prompt_cache_hit_tokens: number

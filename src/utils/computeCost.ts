@@ -1,6 +1,4 @@
-import type { ChatCompletionResponse } from '../types/openaiApi'
-
-type Usage = NonNullable<ChatCompletionResponse['usage']>
+import type { Usage } from '../types/openaiApi'
 
 export function mergeUsage(a: Usage, b: Usage): Usage {
     return {
