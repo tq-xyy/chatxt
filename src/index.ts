@@ -16,17 +16,12 @@ class ProgressReporter {
     private displayed: number = 0
     private prompt: string = ''
 
-    /**
-     * @param showProgress 是否启用进度显示，默认为 true
-     */
     constructor(prompt: string = 'Generating...') {
-        this.switchTo(prompt)
+        this.setPrompt(prompt)
     }
 
-    public switchTo(prompt: string) {
-        this.displayed = 0
+    public setPrompt(prompt: string) {
         this.prompt = prompt
-        process.stdout.write(this.prompt + ' 0 tokens (Ctrl+C to cancel)')
     }
 
     /**
@@ -41,12 +36,9 @@ class ProgressReporter {
         )
     }
 
-    /**
-     * 完成进度，清空当前行并输出最终结果
-     */
     public clear(): void {
-        process.stdout.clearLine?.(0)
-        process.stdout.cursorTo?.(0)
+        process.stdout.clearLine(0)
+        process.stdout.cursorTo(0)
     }
 }
 
@@ -129,7 +121,7 @@ export async function chatfile(
                     if (config.showThinking) {
                         chatfile.appendRoleLine('THINKING')
                     }
-                    reporter.switchTo('Thinking...')
+                    reporter.setPrompt('Thinking...')
                     outputFlag = 'THINKING'
                 }
                 if (choice.delta?.reasoning_content) {
@@ -146,7 +138,7 @@ export async function chatfile(
                     chatfile.appendRoleLine('ASSISTANT')
                     outputFlag = 'ASSISTANT'
                     reporter.clear()
-                    reporter.switchTo('Generating Answer...')
+                    reporter.setPrompt('Generating Answer...')
                 }
                 if (choice.delta?.content) {
                     chatfile.appendContent(choice.delta.content)
@@ -160,7 +152,7 @@ export async function chatfile(
                     chatfile.appendRoleLine('TOOL')
                     outputFlag = 'TOOL'
                     reporter.clear()
-                    reporter.switchTo('Generating Function Call...')
+                    reporter.setPrompt('Generating Function Call...')
                 }
                 if (choice.delta?.tool_calls) {
                     mergeToolCallChunks(toolCalls, choice.delta.tool_calls)
@@ -219,7 +211,6 @@ export async function chatfile(
                             )
                             outputFlag = false
                     }
-                    
                 }
             }
         }
@@ -234,7 +225,8 @@ export async function chatfile(
     )
     console.log(
         `Time in total is ${Math.floor(performance.now() - startTime)}ms. ` +
-            `Estimated cost is ${computeTokenCostCNY(sumUsage, config.model).toFixed(7)} yuan.`
+            `For model ${config.model}, ` +
+            `estimated cost is ${computeTokenCostCNY(sumUsage, config.model).toFixed(7)} yuan.`
     )
 
     chatfile.appendRoleLine('USER')
