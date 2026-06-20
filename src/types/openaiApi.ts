@@ -17,7 +17,7 @@ interface ToolCallFunction {
     arguments: string
 }
 
-interface ToolCall {
+export interface ToolCall {
     id: string
     type: 'function'
     function: ToolCallFunction
@@ -65,7 +65,7 @@ interface FunctionDefinition {
     strict?: boolean
 }
 
-export interface Tool {
+export interface ToolDefinition {
     type: 'function'
     function: FunctionDefinition
 }
@@ -98,7 +98,7 @@ export interface ChatCompletionRequest {
     stream_options?: StreamOptions | null
     temperature?: number | null
     top_p?: number | null
-    tools?: Tool[] | null
+    tools?: ToolDefinition[] | null
     tool_choice?: ToolChoice | null
     logprobs?: boolean | null
     top_logprobs?: number | null

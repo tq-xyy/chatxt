@@ -3,13 +3,13 @@ import type {
     ChatCompletionRequest,
     ChatCompletionResponse,
     Message,
-    Tool,
+    ToolDefinition,
 } from '../types/openaiApi'
 
 export async function chatCompletionStream(
     messages: Message[],
     config: Config,
-    tools: Tool[] | null = null
+    tools: ToolDefinition[] | null = null
 ): Promise<Response> {
     const body: Partial<ChatCompletionRequest> = {
         model: config.model,
@@ -53,7 +53,7 @@ export async function chatCompletionStream(
 export async function chatCompletion(
     messages: Message[],
     config: Config,
-    tools: Tool[] | null = null
+    tools: ToolDefinition[] | null = null
 ): Promise<ChatCompletionResponse> {
     const body: Partial<ChatCompletionRequest> = {
         model: config.model,
