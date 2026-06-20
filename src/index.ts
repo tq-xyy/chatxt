@@ -8,6 +8,7 @@ import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'
 import { chatCompletionStream } from './utils/api'
 import { ChatFile } from './fileobj'
+import type { ChatRole } from './fileobj'
 
 class ProgressReporter {
     private displayed: number = 0
@@ -68,7 +69,7 @@ export async function chatfile(
 
     const chatfile = new ChatFile(chatFilePath)
 
-    const messages = await chatfile.buildPrompt()
+    const [messages, toolPaths] = await chatfile.buildPrompt()
 
     if (
         messages.at(-1)?.role !== 'user' ||
@@ -80,8 +81,7 @@ export async function chatfile(
 
     const resp = await chatCompletionStream(messages, config)
 
-    let reasoningStartFlag = false
-    let answerStartFlag = false
+    let outputFlag: ChatRole = 'UNKNOWN'
 
     const reporter: ProgressReporter = new ProgressReporter('Requesting...')
     const startTime = performance.now()
@@ -89,13 +89,12 @@ export async function chatfile(
     for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
         // 处理 delta
         for (const choice of chunk.choices) {
-            if (choice.delta?.reasoning_content && !reasoningStartFlag) {
+            if (choice.delta?.reasoning_content && outputFlag !== 'THINKING') {
                 if (config.showThinking) {
                     chatfile.appendRoleLine('THINKING')
                 }
                 reporter.switchTo('Thinking...')
-                reasoningStartFlag = true
-                answerStartFlag = false
+                outputFlag = 'THINKING'
             }
             if (choice.delta?.reasoning_content) {
                 if (config.showThinking) {
@@ -104,10 +103,9 @@ export async function chatfile(
                 reporter.update(1)
             }
 
-            if (choice.delta?.content && !answerStartFlag) {
+            if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
                 chatfile.appendRoleLine('ASSISTANT')
-                answerStartFlag = true
-                reasoningStartFlag = false
+                outputFlag = 'ASSISTANT'
                 reporter.clear()
                 reporter.switchTo('Generating Answer...')
             }

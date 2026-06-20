@@ -4,7 +4,7 @@ import * as path from 'path'
 
 import type { Message } from './types/openaiApi'
 
-type ChatRole =
+export type ChatRole =
     | 'UNKNOWN'
     | 'SYSTEM'
     | 'USER'
@@ -23,10 +23,12 @@ const VALID_ROLES: ChatRole[] = [
     'PIPE',
 ]
 
-type DirectiveType = 'file' //| 'pipe' | 'tool' | 'include'
+type DirectiveType = 'file' | 'tool' //| 'pipe'  | 'include'
 
 const VALID_DIRECTIVES: DirectiveType[] = [
-    'file', //'pipe', 'tool', 'include'
+    'file',
+    'tool',
+    //'pipe', 'include'
 ]
 
 interface Directive {
@@ -72,15 +74,17 @@ function parseToBlock(chatText: string): Block[] {
             .split(DIRECTIVE_SEPARATOR_REGEX)
             .map(component => {
                 const match = DIRECTIVE_MATCH_REGEX.exec(component)
+
                 if (!match) {
                     return component
                 }
                 if (
-                    VALID_DIRECTIVES.includes(match[1] as any) &&
+                    !VALID_DIRECTIVES.includes(match[1] as any) &&
                     match[1] !== ''
                 ) {
                     return component
                 }
+
                 let arg = match[2]
                 if (arg.startsWith('"') && arg.endsWith('"')) {
                     arg = arg.slice(1, -1)
@@ -133,13 +137,16 @@ export class ChatFile {
         this.debounceWrite()
     }
 
-    async rewriteBlockToMessage(block: Block): Promise<Message> {
+    async rewriteBlockToMessage(
+        block: Block
+    ): Promise<[Message, Set<string>]> {
         let content = ''
         let suffixContent = ''
+        let toolSet = new Set<string>()
 
         for (const comp of block.components) {
             if (typeof comp === 'string') {
-                content += comp
+                content += comp.trimEnd()
             } else if (comp.type === 'file') {
                 const filePath = path.join(
                     path.dirname(this.chatFilePath),
@@ -169,22 +176,32 @@ export class ChatFile {
                 }
 
                 content += `${comp.arg}`
+            } else if (comp.type === 'tool') {
+                toolSet.add(
+                    path.join(path.dirname(this.chatFilePath), comp.arg)
+                )
             } else {
                 content += `@${comp.type}(${comp.arg})`
             }
         }
 
-        return {
-            role: block.role.toLowerCase() as 'system' | 'user' | 'assistant',
-            content:
-                content.trimEnd() +
-                (suffixContent.length > 0
-                    ? '\n\n' + suffixContent.trimEnd()
-                    : ''),
-        }
+        return [
+            {
+                role: block.role.toLowerCase() as
+                    | 'system'
+                    | 'user'
+                    | 'assistant',
+                content:
+                    content.trimEnd() +
+                    (suffixContent.length > 0
+                        ? '\n\n' + suffixContent.trimEnd()
+                        : ''),
+            },
+            toolSet,
+        ]
     }
 
-    async buildPrompt(): Promise<Message[]> {
+    async buildPrompt(): Promise<[Message[], string[]]> {
         let chatText = await readFile(this.chatFilePath, 'utf-8')
 
         // 忽略 shebang 行
@@ -195,6 +212,7 @@ export class ChatFile {
         const blocks = parseToBlock(chatText)
 
         const messages: Message[] = []
+        const tools = new Set<string>()
 
         for (const block of blocks) {
             if (
@@ -202,9 +220,13 @@ export class ChatFile {
                 block.role === 'USER' ||
                 block.role === 'ASSISTANT'
             ) {
-                messages.push(await this.rewriteBlockToMessage(block))
+                const [msg, toolSet] = await this.rewriteBlockToMessage(block)
+                for (const toolPath of toolSet) {
+                    tools.add(toolPath)
+                }
+                messages.push(msg)
             }
         }
-        return messages
+        return [messages, [...tools]]
     }
 }
