@@ -89,6 +89,7 @@ export async function chatfile(
             reasoning_tokens: 0,
         },
     }
+    let sumToolCall: number = 0
 
     let outputFlag: ChatRole | boolean = 'UNKNOWN'
 
@@ -113,105 +114,105 @@ export async function chatfile(
                 sumUsage = mergeUsage(sumUsage, chunk.usage)
             }
 
-            for (const choice of chunk.choices) {
-                if (
-                    choice.delta?.reasoning_content &&
-                    outputFlag !== 'THINKING'
-                ) {
-                    if (config.showThinking) {
-                        chatfile.appendRoleLine('THINKING')
-                    }
-                    reporter.setPrompt('Thinking...')
-                    outputFlag = 'THINKING'
+            const choice = chunk.choices[0]
+            if (choice.delta?.reasoning_content && outputFlag !== 'THINKING') {
+                if (config.showThinking) {
+                    chatfile.appendRoleLine('THINKING')
                 }
-                if (choice.delta?.reasoning_content) {
-                    if (config.showThinking) {
-                        chatfile.appendContent(choice.delta.reasoning_content)
-                    }
-                    // @ts-expect-error
-                    messages[messages.length - 1].reasoning_content +=
-                        choice.delta.reasoning_content
-                    reporter.update(1)
+                reporter.setPrompt('Thinking...')
+                outputFlag = 'THINKING'
+            }
+            if (choice.delta?.reasoning_content) {
+                if (config.showThinking) {
+                    chatfile.appendContent(choice.delta.reasoning_content)
+                }
+                // @ts-expect-error
+                messages[messages.length - 1].reasoning_content +=
+                    choice.delta.reasoning_content
+                reporter.update(1)
+            }
+
+            if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
+                chatfile.appendRoleLine('ASSISTANT')
+                outputFlag = 'ASSISTANT'
+                reporter.clear()
+                reporter.setPrompt('Generating Answer...')
+            }
+            if (choice.delta?.content) {
+                chatfile.appendContent(choice.delta.content)
+
+                messages[messages.length - 1].content += choice.delta.content
+                reporter.update(1)
+            }
+
+            if (choice.delta?.tool_calls && outputFlag !== 'TOOL') {
+                chatfile.appendRoleLine('TOOL')
+                outputFlag = 'TOOL'
+                reporter.clear()
+                reporter.setPrompt('Generating Function Call...')
+            }
+            if (choice.delta?.tool_calls) {
+                // 流式模式下一次迭代只输出一次工具调用
+                if (choice.delta.tool_calls[0].type === 'function') {
+                    sumToolCall++
+                    choice.delta.tool_calls[0].id = `第${messages.length}轮对话的${sumToolCall}次工具调用`
+                    chatfile.appendContent(
+                        `\n${
+                            choice.delta.tool_calls[0].function.name
+                        } (${choice.delta.tool_calls[0].id}): `
+                    )
+                } else {
+                    chatfile.appendContent(
+                        choice.delta.tool_calls[0].function.arguments
+                    )
                 }
 
-                if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
-                    chatfile.appendRoleLine('ASSISTANT')
-                    outputFlag = 'ASSISTANT'
-                    reporter.clear()
-                    reporter.setPrompt('Generating Answer...')
-                }
-                if (choice.delta?.content) {
-                    chatfile.appendContent(choice.delta.content)
+                mergeToolCallChunks(toolCalls, choice.delta.tool_calls)
 
-                    messages[messages.length - 1].content +=
-                        choice.delta.content
-                    reporter.update(1)
-                }
+                reporter.update(1)
+            }
 
-                if (choice.delta?.tool_calls && outputFlag !== 'TOOL') {
-                    chatfile.appendRoleLine('TOOL')
-                    outputFlag = 'TOOL'
-                    reporter.clear()
-                    reporter.setPrompt('Generating Function Call...')
-                }
-                if (choice.delta?.tool_calls) {
-                    mergeToolCallChunks(toolCalls, choice.delta.tool_calls)
-                    if (choice.delta.tool_calls[0].type === 'function') {
+            if (choice.finish_reason === 'tool_calls') {
+                // @ts-expect-error
+                messages[messages.length - 1].tool_calls = toolCalls
+
+                reporter.setPrompt('Call Function...')
+                reporter.update(0)
+
+                const msgs = await toolRunner.executeAll(toolCalls)
+                messages.push(...msgs)
+                chatfile.appendRoleLine('TOOLRESPONSE')
+                for (const msg of msgs) {
+                    if (msg.role === 'tool') {
                         chatfile.appendContent(
-                            `\n${
-                                choice.delta.tool_calls[0].function.name
-                            } (${choice.delta.tool_calls[0].id}): `
-                        )
-                    } else {
-                        chatfile.appendContent(
-                            choice.delta.tool_calls[0].function.arguments
+                            `${msg.tool_call_id}: ${msg.content}\n`
                         )
                     }
-                    reporter.update(1)
                 }
-
-                if (choice.finish_reason) {
-                    switch (choice.finish_reason) {
-                        case 'stop':
-                        case 'length':
-                            // do nothing
-                            outputFlag = false
-                            break
-                        case 'tool_calls':
-                            // @ts-expect-error
-                            messages[messages.length - 1].tool_calls =
-                                toolCalls
-                            const msgs = await toolRunner.executeAll(toolCalls)
-                            messages.push(...msgs)
-                            for (const msg of msgs) {
-                                if (msg.role === 'tool') {
-                                    chatfile.appendRoleLine('TOOLRESPONSE')
-                                    chatfile.appendContent(
-                                        `${msg.tool_call_id}: ${msg.content}`
-                                    )
-                                }
-                            }
-                            break
-                        case 'content_filter':
-                            console.warn(
-                                'stop by content filter, ' +
-                                    'dont ask for politics senstive or yellow content.'
-                            )
-                            outputFlag = false
-                            break
-                        case 'insufficient_system_resource':
-                            console.warn(
-                                'model provider system crush because of insufficient resource'
-                            )
-                            outputFlag = false
-                            break
-                        default:
-                            console.error(
-                                `unkonwn finish reason: ${choice.finish_reason}`
-                            )
-                            outputFlag = false
-                    }
+                outputFlag = 'UNKNOWN'
+            } else if (choice.finish_reason !== null) {
+                switch (choice.finish_reason) {
+                    case 'stop':
+                    case 'length':
+                        // do nothing
+                        break
+                    case 'content_filter':
+                        console.warn(
+                            'stop by content filter, ' +
+                                'dont ask for politics senstive or yellow content.'
+                        )
+                        break
+                    case 'insufficient_system_resource':
+                        console.warn(
+                            'model provider system crush because of insufficient resource'
+                        )
+                        break
+                    default:
+                        console.error(
+                            `unkonwn finish reason: ${choice.finish_reason}`
+                        )
                 }
+                outputFlag = false
             }
         }
     }
@@ -223,6 +224,9 @@ export async function chatfile(
             ` and ${sumUsage.completion_tokens} for output` +
             ` (${sumUsage.completion_tokens_details?.reasoning_tokens} for thinking).`
     )
+    if (sumToolCall > 0) {
+        console.log(`Call Tool for ${sumToolCall} times.`)
+    }
     console.log(
         `Time in total is ${Math.floor(performance.now() - startTime)}ms. ` +
             `For model ${config.model}, ` +

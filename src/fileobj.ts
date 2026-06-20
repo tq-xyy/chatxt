@@ -2,7 +2,7 @@ import { readFile, appendFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import * as path from 'path'
 
-import type { Message } from './types/openaiApi'
+import type { Message, ToolCall } from './types/openaiApi'
 
 export type ChatRole =
     | 'UNKNOWN'
@@ -148,14 +148,15 @@ export class ChatFile {
 
         for (const comp of block.components) {
             if (block.role !== 'USER') {
+                // dont parse directives from non-user block
                 content +=
                     typeof comp === 'string'
-                        ? comp.trimEnd()
+                        ? comp
                         : `@${comp.type}(${comp.arg})`
                 continue
             }
             if (typeof comp === 'string') {
-                content += comp.trimEnd()
+                content += comp
             } else if (comp.type === 'file') {
                 const filePath = path.join(
                     path.dirname(this.chatFilePath),
@@ -210,6 +211,44 @@ export class ChatFile {
         ]
     }
 
+    parseToolBlockToToolCalls(block: Block): ToolCall[] {
+        const toolRegex = /^([\w\.]+)\s*\(([^)]+)\):\s*(.*)$/
+
+        const toolCalls: ToolCall[] = []
+
+        for (const line of block.components.join('').split('\n')) {
+            const match = line.match(toolRegex)
+            if (match) {
+                const [, name, id, callString] = match
+                toolCalls.push({
+                    index: toolCalls.length + 1,
+                    type: 'function',
+                    id,
+                    function: {
+                        name,
+                        arguments: callString,
+                    },
+                })
+            }
+        }
+        return toolCalls
+    }
+
+    parseToolResponseBlockToMessages(block: Block): Message[] {
+        const toolMessages: Message[] = []
+
+        for (const line of block.components.join('').split('\n')) {
+            const [toolId, jsonStr] = line.split(/:(.+)/)
+            if (toolId.length === 0 || !jsonStr) continue
+            toolMessages.push({
+                role: 'tool',
+                content: jsonStr,
+                tool_call_id: toolId,
+            })
+        }
+        return toolMessages
+    }
+
     async buildPrompt(): Promise<[Message[], string[]]> {
         let chatText = await readFile(this.chatFilePath, 'utf-8')
 
@@ -235,6 +274,22 @@ export class ChatFile {
                     tools.add(toolPath)
                 }
                 messages.push(msg)
+            }
+            if (block.role === 'TOOL') {
+                const lastMessage = messages[messages.length - 1]
+                const tool_calls = this.parseToolBlockToToolCalls(block)
+                if (lastMessage.role === 'assistant') {
+                    lastMessage.tool_calls = tool_calls
+                } else {
+                    messages.push({
+                        role: 'assistant',
+                        tool_calls,
+                        content: null,
+                    })
+                }
+            }
+            if (block.role === 'TOOLRESPONSE') {
+                messages.push(...this.parseToolResponseBlockToMessages(block))
             }
         }
         return [messages, [...tools]]
