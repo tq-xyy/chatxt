@@ -3,18 +3,7 @@ export {} // 确保这是模块
 
 declare global {
     function serveAsTool(
-        ...entries: [
-            (...args: any[]) => any,
-            string,
-            {
-                type: 'object'
-                properties: Record<
-                    string,
-                    { type: string; description: string }
-                >
-                required: string[]
-            },
-        ][]
+        ...entries: [(...args: any[]) => any, string, any][]
     ): Promise<never>
 
     function ToJSONSchema(

@@ -110,6 +110,8 @@ export async function chatfile(
     const startTime = performance.now()
 
     const reporter: ProgressReporter = new ProgressReporter('Requesting...')
+    reporter.update(0)
+
     let sumUsage: Usage = {
         completion_tokens: 0,
         prompt_tokens: 0,

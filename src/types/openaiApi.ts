@@ -45,56 +45,44 @@ export type Message =
 
 // ======================== 请求参数 ========================
 
-interface ThinkingConfig {
-    type?: 'enabled' | 'disabled'
-}
-
-interface ResponseFormat {
-    type?: 'text' | 'json_object'
-}
-
-interface StreamOptions {
-    include_usage?: boolean
-}
-
-interface FunctionDefinition {
-    description?: string
-    name: string
-    parameters?: Record<string, any> // JSON Schema
-    strict?: boolean
-}
-
 export interface ToolDefinition {
     type: 'function'
-    function: FunctionDefinition
+    function: {
+        description?: string
+        name: string
+        parameters?: Record<string, any> // JSON Schema
+        strict?: boolean
+    }
 }
 
-interface NamedToolChoiceFunction {
-    name: string
-}
-
-interface ChatCompletionNamedToolChoice {
-    type: 'function'
-    function: NamedToolChoiceFunction
-}
-
-export type ToolChoice =
+type ToolChoice =
     | 'none'
     | 'auto'
     | 'required'
-    | ChatCompletionNamedToolChoice
+    | {
+          type: 'function'
+          function: {
+              name: string
+          }
+      }
 
 export interface ChatCompletionRequest {
     // 原生 /chat/completions 请求体
     messages: Message[] // Required
     model: string // Required, 'deepseek-v4-flash' | 'deepseek-v4-pro'
-    thinking?: ThinkingConfig | null
+    thinking?: {
+        type?: 'enabled' | 'disabled'
+    } | null
     reasoning_effort?: 'high' | 'max' | null
     max_tokens?: number | null
-    response_format?: ResponseFormat | null
+    response_format?: {
+        type?: 'text' | 'json_object'
+    } | null
     stop?: string | string[] | null
     stream?: boolean | null
-    stream_options?: StreamOptions | null
+    stream_options?: {
+        include_usage?: boolean
+    } | null
     temperature?: number | null
     top_p?: number | null
     tools?: ToolDefinition[] | null
@@ -106,17 +94,15 @@ export interface ChatCompletionRequest {
 
 // ======================== 响应类型 ========================
 
-interface TopLogProb {
-    token: string
-    logprob: number
-    bytes: number[] | null
-}
-
 interface LogProbToken {
     token: string
     logprob: number
     bytes: number[] | null
-    top_logprobs: TopLogProb[]
+    top_logprobs: {
+        token: string
+        logprob: number
+        bytes: number[] | null
+    }[]
 }
 
 interface LogProbs {
