@@ -1,6 +1,6 @@
 {
     "name": "chatfile",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "type": "module",
     "description": "Chatfile - AI conversations recorded as .chat.md files",
     "main": "dist/index.js",
@@ -18,9 +18,9 @@
         "commander": "^15.0.0"
     },
     "devDependencies": {
-        "@types/node": "^26.0.0",
+        "@types/node": "^26.1.0",
         "esbuild": "^0.28.1",
         "esno": "^4.8.0",
-        "prettier": "^3.8.4"
+        "prettier": "^3.9.4"
     }
 }
