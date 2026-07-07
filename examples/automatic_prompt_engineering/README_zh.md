@@ -60,4 +60,3 @@ AI 会依次调用 `savePrompt` 暂存目标 prompt，然后引导你进行修�
 
 - `cache/` 和 `tests/` 已加入 `.gitignore`，不会被提交到版本控制
 - 工具函数通过 `serveAsTool` 注册，由 Chatfile 工具系统自动调度，无需手动调用
-

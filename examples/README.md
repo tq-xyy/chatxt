@@ -1,1 +1,1 @@
-这是一些高级用法的例子。
+These are some examples of advanced usage.

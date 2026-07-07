@@ -25,7 +25,10 @@ async function readPrompt() {
     return { prompt: content }
 }
 
-async function testPrompt() {
+async function testPrompt({
+    thinking = true,
+    thinking_effort,
+}: { thinking?: boolean; thinking_effort?: string } = {}) {
     const config = await loadConfig()
 
     const prompt = await readFile(PROMPT_FILE, 'utf-8')
@@ -41,7 +44,11 @@ async function testPrompt() {
                     { role: 'system', content: prompt },
                     { role: 'user', content: input },
                 ],
-                thinking: { type: 'enabled' },
+                thinking: thinking
+                    ? { type: 'enabled' }
+                    : { type: 'disabled' },
+                reasoning_effort: (thinking_effort ?? null) as
+                    'high' | 'max' | null,
             }
             const startTime = performance.now()
             const resp = await fetch(`${config.endpoint}/chat/completions`, {
@@ -67,6 +74,16 @@ async function testPrompt() {
     return results
 }
 
+async function saveAndTestPrompt(options: {
+    prompt: string
+    thinking?: boolean
+    thinking_effort?: string
+}) {
+    const { prompt, ...generateOptions } = options
+    await savePrompt({ prompt })
+    return await testPrompt(generateOptions)
+}
+
 await serveAsTool(
     [
         savePrompt,
@@ -83,6 +100,43 @@ await serveAsTool(
         '从文件读取 prompt，对 tests/ 中每个 .txt 文件,' +
             '作为测试样例调用 LLM，返回 [{test_id, input, output, generation_time}] 数组。' +
             '调用前, 你需要确保你已经写入 prompt, 如果沿用请检测文件中是否为你期望的 prompt',
-        { type: 'object', properties: {}, required: [] },
+        {
+            type: 'object',
+            properties: {
+                thinking: {
+                    type: 'boolean',
+                    description: '是否开启思考模式，默认 true',
+                },
+                thinking_effort: {
+                    type: 'string',
+                    description: '思考强度，可选 high 或 max',
+                    enum: ['high', 'max'],
+                },
+            },
+            required: ['thinking'],
+        },
+    ],
+    [
+        saveAndTestPrompt,
+        '参数参见 savePrompt 和 testPrompt。',
+        {
+            type: 'object',
+            properties: {
+                prompt: {
+                    type: 'string',
+                    description: '要暂存的提示词',
+                },
+                thinking: {
+                    type: 'boolean',
+                    description: '是否开启思考模式，默认 true',
+                },
+                thinking_effort: {
+                    type: 'string',
+                    description: '思考强度，可选 high 或 max',
+                    enum: ['high', 'max'],
+                },
+            },
+            required: ['prompt', 'thinking'],
+        },
     ]
 )
