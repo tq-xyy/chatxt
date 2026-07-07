@@ -61,7 +61,7 @@ async function serveAsTool(
     const tool = toolDefs.find(t => t.name === toolName)
     if (!tool) {
         process.stderr.write(`Error: Tool "${toolName}" not found\n`)
-        process.exit(1)
+        process.exit(1001)
     }
 
     // 内联的 stdin 读取辅助函数
@@ -92,7 +92,7 @@ async function serveAsTool(
         inputJson = await readStdin()
     } catch (err: any) {
         process.stderr.write(`Error reading stdin: ${err.message}\n`)
-        process.exit(1)
+        process.exit(1002)
     }
 
     let args: any
@@ -100,7 +100,7 @@ async function serveAsTool(
         args = JSON.parse(inputJson || '{}')
     } catch {
         process.stderr.write('Invalid JSON input\n')
-        process.exit(1)
+        process.exit(1003)
     }
 
     // 执行工具函数，并输出结果
@@ -111,8 +111,8 @@ async function serveAsTool(
         process.exit(0)
     } catch (err: any) {
         // 将异常转为错误 JSON 输出
-        process.stdout.write(JSON.stringify({ error: err.message }))
-        process.exit(1)
+        process.stderr.write(JSON.stringify({ error: err.message }))
+        process.exit(2000)
     }
 }
 

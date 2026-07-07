@@ -48,13 +48,12 @@ export class NodeToolExecutor implements ToolExecutor {
         filePath: string
         env: Record<string, string>
         stdin?: string
-        timeoutMs?: number
     }): Promise<{
         stdout: string
         stderr: string
         exitCode: number
     }> {
-        const { filePath, env, stdin, timeoutMs = 30_000 } = options
+        const { filePath, env, stdin } = options
 
         const args = [...this.nodeArgs, '--import', this.runtimePath, filePath]
 
@@ -80,15 +79,11 @@ export class NodeToolExecutor implements ToolExecutor {
             child.stdin.end()
         }
 
-        const timeout = setTimeout(() => child.kill('SIGTERM'), timeoutMs)
-
         return new Promise((resolve, reject) => {
             child.on('close', code => {
-                clearTimeout(timeout)
                 resolve({ stdout, stderr, exitCode: code ?? -1 })
             })
             child.on('error', err => {
-                clearTimeout(timeout)
                 reject(
                     new Error(`Failed to spawn tool process: ${err.message}`)
                 )
@@ -135,7 +130,8 @@ export class NodeToolExecutor implements ToolExecutor {
 
         if (result.exitCode !== 0) {
             throw new Error(
-                `Tool execution for "${toolName}" exited with code ${result.exitCode}. stderr: ${result.stderr}`
+                `Tool execution for '${toolName}' exited with code ${result.exitCode}.
+stdout: ${result.stdout} stderr: ${result.stderr}`
             )
         }
         return result.stdout
