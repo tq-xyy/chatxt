@@ -221,9 +221,7 @@ export class ChatFile {
         return [
             {
                 role: block.role.toLowerCase() as
-                    | 'system'
-                    | 'user'
-                    | 'assistant',
+                    'system' | 'user' | 'assistant',
                 content:
                     content.trimEnd() +
                     (suffixContent.length > 0

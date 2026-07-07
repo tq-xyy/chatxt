@@ -38,10 +38,7 @@ interface ToolMessage {
 }
 
 export type Message =
-    | SystemMessage
-    | UserMessage
-    | AssistantMessage
-    | ToolMessage
+    SystemMessage | UserMessage | AssistantMessage | ToolMessage
 
 // ======================== 请求参数 ========================
 

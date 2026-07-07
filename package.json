@@ -8,7 +8,7 @@
         "chatfile": "dist/index.js"
     },
     "scripts": {
-        "lint": "prettier -w src package.json tsconfig.json"
+        "lint": "prettier -w src package.json tsconfig.json examples"
     },
     "keywords": [],
     "author": "",
