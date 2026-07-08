@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import * as path from 'path'
 
 import type { Message, ToolCall } from './types/openaiApi'
+import type { Config } from './config'
 
 export type ChatRole =
     | 'UNKNOWN'
@@ -110,12 +111,14 @@ function parseToBlock(chatText: string): Block[] {
 
 export class ChatFile {
     chatFilePath: string
+    config: Config
     private writeBuffer: string
     private writeTimer: ReturnType<typeof setTimeout> | null = null
     protected referredFile: Set<string> = new Set()
 
-    constructor(chatFilePath: string) {
+    constructor(chatFilePath: string, config: Config) {
         this.chatFilePath = chatFilePath
+        this.config = config
         this.writeBuffer = ''
     }
 
@@ -295,7 +298,7 @@ export class ChatFile {
             if (block.role === 'SYSTEM' || block.role === 'ASSISTANT') {
                 messages.push(this.convertPlainBlockToMessage(block))
             }
-            if (block.role === 'TOOL') {
+            if (block.role === 'TOOL' && !this.config.excludeHistoryToolCall) {
                 const lastMessage = messages[messages.length - 1]
                 const tool_calls = this.parseToolBlockToToolCalls(block)
                 if (lastMessage.role === 'assistant') {
@@ -308,7 +311,10 @@ export class ChatFile {
                     })
                 }
             }
-            if (block.role === 'TOOLRESPONSE') {
+            if (
+                block.role === 'TOOLRESPONSE' &&
+                !this.config.excludeHistoryToolCall
+            ) {
                 messages.push(...this.parseToolResponseBlockToMessages(block))
             }
         }

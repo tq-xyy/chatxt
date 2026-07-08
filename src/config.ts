@@ -7,6 +7,7 @@ export interface Config {
     apiKey: string
     thinkingEffort: string
     showThinking: boolean
+    excludeHistoryToolCall: boolean
 }
 
 /**
@@ -33,6 +34,7 @@ const configTemplate: Config = {
     apiKey: '',
     thinkingEffort: 'high',
     showThinking: false,
+    excludeHistoryToolCall: false,
 }
 
 /**

@@ -17,10 +17,14 @@ program
         '-t, --show-thinking',
         'show reasoning chain in .chat.txt (if available)'
     )
+    .option(
+        '--exclude-history-tool-call',
+        'remove history tool call from context to save tokens'
+    )
     .action(async (file, options) => {
-        await loadConfig(options)
+        const config = await loadConfig(options)
 
-        await chatfile(file, await loadConfig(options))
+        await chatfile(file, config)
     })
 
 program

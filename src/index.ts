@@ -115,7 +115,7 @@ export async function chatfile(
             return
         }
 
-        const chatfile = new ChatFile(chatFilePath)
+        const chatfile = new ChatFile(chatFilePath, config)
         const toolRunner = new ToolRunner()
 
         const [messages, toolPaths] = await chatfile.buildPrompt()
