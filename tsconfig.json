@@ -6,7 +6,7 @@
         "esModuleInterop": true,
         "strict": true,
         "outDir": "dist",
-        "rootDir": "src",
+        "rootDir": ".",
         "declaration": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
@@ -15,6 +15,6 @@
         "lib": ["ESNext"],
         "types": ["node"]
     },
-    "include": ["src/**/*.ts", "src/**/*.d.ts"],
+    "include": ["src/**/*.ts", "src/**/*.d.ts", "examples"],
     "exclude": ["node_modules", "dist"]
 }
