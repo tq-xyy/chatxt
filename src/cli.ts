@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { chatfile } from './index' // 你已有的 chatfile 函数
+import { ChatSession } from './index'
 import { initConfig, loadConfig } from './config'
 
 import { version } from '../package.json'
@@ -23,8 +23,8 @@ program
     )
     .action(async (file, options) => {
         const config = await loadConfig(options)
-
-        await chatfile(file, config)
+        const session = new ChatSession(file, config)
+        await session.loop()
     })
 
 program

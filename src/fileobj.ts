@@ -150,6 +150,12 @@ export class ChatFile {
         this.debounceWrite()
     }
 
+    appendThinkingText(text: string, writeHeader: boolean) {
+        if (!this.config.showThinking) return
+        if (writeHeader) this.appendRoleLine('THINKING')
+        this.appendContent(text)
+    }
+
     private convertPlainBlockToMessage(block: Block): Message {
         let content = ''
 
