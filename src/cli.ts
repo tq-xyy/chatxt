@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { ChatSession } from './index'
+import { ChatSession } from './session'
 import { initConfig, loadConfig } from './config'
 
 import { version } from '../package.json'

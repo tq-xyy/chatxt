@@ -1,13 +1,14 @@
 {
     "name": "chatfile",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "type": "module",
     "description": "Chatfile - AI conversations recorded as .chat.md files",
-    "main": "dist/index.js",
     "bin": {
-        "chatfile": "dist/index.js"
+        "chatfile": "dist/cli.js"
     },
     "scripts": {
+        "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli.js",
+        "typecheck": "tsc --noEmit",
         "lint": "prettier -w src package.json tsconfig.json examples"
     },
     "keywords": [],
@@ -21,6 +22,7 @@
         "@types/node": "^26.1.0",
         "esbuild": "^0.28.1",
         "esno": "^4.8.0",
-        "prettier": "^3.9.4"
+        "prettier": "^3.9.4",
+        "typescript": "^5.8.3"
     }
 }
