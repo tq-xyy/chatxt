@@ -1,11 +1,6 @@
 import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type {
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-} from '../../src/types/openaiApi'
-import { loadConfig } from '../../src/config'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -29,8 +24,6 @@ async function testPrompt({
     thinking = true,
     thinking_effort,
 }: { thinking?: boolean; thinking_effort?: string } = {}) {
-    const config = await loadConfig()
-
     const prompt = await readFile(PROMPT_FILE, 'utf-8')
     const files = await readdir(TESTS_DIR)
     const testFiles = files.filter(f => f.endsWith('.txt')).sort()
@@ -38,34 +31,15 @@ async function testPrompt({
     const results = await Promise.all(
         testFiles.map(async file => {
             const input = await readFile(path.join(TESTS_DIR, file), 'utf-8')
-            const body: ChatCompletionRequest = {
-                model: config.model,
+            const startTime = performance.now()
+            const json = await chatCompletion({
                 messages: [
                     { role: 'system', content: prompt },
                     { role: 'user', content: input },
                 ],
-                thinking: thinking
-                    ? { type: 'enabled' }
-                    : { type: 'disabled' },
-                reasoning_effort: (thinking_effort ?? null) as
-                    'high' | 'max' | null,
-            }
-            const startTime = performance.now()
-            const resp = await fetch(`${config.endpoint}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${config.apiKey}`,
-                },
-                body: JSON.stringify(body),
+                thinking: thinking ? { type: 'enabled' } : { type: 'disabled' },
+                reasoning_effort: thinking_effort as 'high' | 'max' | undefined,
             })
-            if (!resp.ok) {
-                const errorText = await resp.text()
-                throw new Error(
-                    `API request failed (${resp.status}): ${errorText}`
-                )
-            }
-            const json = (await resp.json()) as ChatCompletionResponse
             const output = json.choices[0]?.message?.content ?? ''
             const generation_time = performance.now() - startTime
             return { test_id: file, input, output, generation_time }
@@ -84,7 +58,7 @@ async function saveAndTestPrompt(options: {
     return await testPrompt(generateOptions)
 }
 
-await serveAsTool(
+serveAsTool(
     [
         savePrompt,
         '将 prompt 暂存到文件, 返回成功消息',

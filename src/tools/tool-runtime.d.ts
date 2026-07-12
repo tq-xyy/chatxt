@@ -1,10 +1,15 @@
-// toolkit.d.ts
-export {} // 确保这是模块
+import type { ChatCompletionRequest, ChatCompletionResponse } from '../types/openaiApi'
+
+export {}
 
 declare global {
     function serveAsTool(
         ...entries: [(...args: any[]) => any, string, any][]
-    ): Promise<never>
+    ): void
+
+    function chatCompletion(
+        request: Partial<ChatCompletionRequest>
+    ): Promise<ChatCompletionResponse>
 
     function ToJSONSchema(
         argsDefs: [

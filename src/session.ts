@@ -3,6 +3,8 @@ import { writeFile } from 'fs/promises'
 
 import type {
     ChatCompletionChunk,
+    ChatCompletionResponse,
+    ChatCompletionRequest,
     ToolCall,
     Usage,
     Message,
@@ -49,7 +51,7 @@ function processFinishReason(choice: ChatCompletionChunk['choices'][0]): void {
 export class ChatSession {
     private config: Config
     private file: ChatFile
-    private toolRunner = new ToolRunner()
+    private toolRunner: ToolRunner
     private messages: Message[] = []
     private sumUsage: Usage = {
         completion_tokens: 0,
@@ -72,6 +74,7 @@ export class ChatSession {
         this.file = new ChatFile(chatFilePath, config)
         this.startTime = performance.now()
         this.reporter = new ProgressReporter('Requesting...')
+        this.toolRunner = new ToolRunner(this)
     }
 
     async loop(): Promise<void> {
@@ -137,16 +140,20 @@ export class ChatSession {
             this.file.appendRoleLine('USER')
             await this.file.flushBuffer()
 
+            this.reporter.close()
+
             printFinalStatus({
                 startTime: this.startTime,
                 usage: this.sumUsage,
                 toolCallCount: this.sumToolCall,
                 config: this.config,
             })
+            console.log()
         } catch (err) {
+            this.reporter.close()
             printExceptionMessage(err)
         } finally {
-            this.reporter.close()
+            this.toolRunner.close()
         }
     }
 
@@ -237,6 +244,58 @@ export class ChatSession {
                 )
             }
         }
+    }
+
+    async subAgentChatCompletion(
+        request: ChatCompletionRequest
+    ): Promise<ChatCompletionResponse> {
+        if (request.stream) {
+            throw new Error(
+                'chatCompletion not support stream, please use `fetch`'
+            )
+        }
+
+        const body: Partial<ChatCompletionRequest> = {
+            ...request,
+            model: request.model || this.config.model,
+            messages: request.messages,
+            thinking: request.thinking ?? { type: 'enabled' },
+            reasoning_effort:
+                request.reasoning_effort ||
+                (this.config.thinkingEffort as ChatCompletionRequest['reasoning_effort']),
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+        }
+
+        const resp = await fetch(
+            `${this.config.endpoint}/chat/completions`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${this.config.apiKey}`,
+                },
+                body: JSON.stringify(body),
+            }
+        )
+
+        if (!resp.ok) {
+            let errorText = await resp.text()
+            try {
+                const errorJSON = JSON.parse(errorText)
+                errorText = errorJSON.error.message
+            } catch {}
+            throw new Error(
+                `API Request Failed (${resp.status}), error message: ${errorText}`
+            )
+        }
+
+        const result = (await resp.json()) as ChatCompletionResponse
+
+        if (result.usage) {
+            this.addUsageRecord(result.usage)
+        }
+        return result
     }
 
     private addUsageRecord(usage: Usage) {

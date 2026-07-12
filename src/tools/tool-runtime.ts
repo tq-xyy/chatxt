@@ -1,136 +1,79 @@
-// 此文件由 Chatfile 在工具子进程中注入，提供全局函数 serveAsTool 和 ToJSONSchema。
+import type { ExecuteMessage, ChatCompletionResultMessage } from './ipc-types'
+import type { ChatCompletionRequest, ChatCompletionResponse } from '../types/openaiApi'
 
 type ToolFunction = (...args: any[]) => any
 
-interface ToolDefinition {
+interface RegisteredTool {
     name: string
     description: string
     parameters: Record<string, any>
     func: ToolFunction
 }
 
-/**
- * 注册一个或多个工具，并根据环境变量 FUNCTION_CALL 执行描述或调用操作，最后退出进程。
- * 应作为工具文件的最后一个调用（不再返回）。
- *
- * @param entries - 可变参数，每个元素为 [工具函数, 描述, JSON Schema 参数对象]
- *
- * 环境变量 FUNCTION_CALL 的行为：
- *   - 未定义（undefined）：静默退出，不做任何事。
- *   - 空字符串（''）：输出所有已注册工具的 JSON 定义列表到 stdout，然后退出。
- *   - 非空字符串：表示要执行的工具名称。从 stdin 读取 JSON 参数，调用对应函数，
- *     将函数返回值（若为 Promise 则等待）序列化为 JSON 输出到 stdout，然后退出。
- *     若出错，向 stderr 写入错误信息并以非零码退出。
- */
-async function serveAsTool(
-    ...entries: [ToolFunction, string, Record<string, any>][]
-): Promise<never> {
-    const toolDefs: ToolDefinition[] = []
+const toolMap = new Map<string, RegisteredTool>()
+const toolDefs: { name: string; description: string; parameters: Record<string, any> }[] = []
+let nextChatId = 0
+const pendingChats = new Map<string, { resolve: (value: any) => void; reject: (err: Error) => void }>()
 
-    // 收集工具定义
+function serveAsTool(
+    ...entries: [ToolFunction, string, Record<string, any>][]
+): void {
     for (const [func, description, parameters] of entries) {
         const name = func.name || `anonymous_${toolDefs.length}`
-        toolDefs.push({ name, description, parameters, func })
+        if (toolMap.has(name)) {
+            process.send!({ type: 'warning', message: `Duplicate tool name "${name}" ignored.` })
+            continue
+        }
+        toolMap.set(name, { name, description, parameters, func })
+        toolDefs.push({ name, description, parameters })
     }
 
-    const functionCall = process.env.FUNCTION_CALL
+    const definitions = toolDefs.map(({ name, description, parameters }) => ({
+        type: 'function' as const,
+        function: { name, description, parameters },
+    }))
 
-    // 环境变量不存在：直接静默退出
-    if (functionCall === undefined) {
-        process.exit(0)
+    if (process.send) {
+        process.send({ type: 'register', tools: definitions })
+    } else {
+        console.error('FATAL: IPC channel not available. This script must be launched with child_process.fork.')
+        process.exit(1)
     }
 
-    // 环境变量为空字符串：输出工具定义列表（用于描述模式）
-    if (functionCall === '') {
-        const descriptions = toolDefs.map(
-            ({ name, description, parameters }) => ({
-                type: 'function' as const,
-                function: {
-                    name,
-                    description,
-                    parameters,
-                },
-            })
-        )
-        process.stdout.write(JSON.stringify(descriptions))
-        process.exit(0)
-    }
-
-    // ---- 以下为执行模式 ----
-    const toolName = functionCall.trim()
-    const tool = toolDefs.find(t => t.name === toolName)
-    if (!tool) {
-        process.stderr.write(`Error: Tool "${toolName}" not found\n`)
-        process.exit(1001)
-    }
-
-    // 内联的 stdin 读取辅助函数
-    const readStdin = (): Promise<string> =>
-        new Promise(resolve => {
-            let data = ''
-            // 若 stdin 是终端（如用户手动测试），直接返回空
-            if (process.stdin.isTTY) {
-                resolve('')
-                return
+    process.on('message', async (msg: ExecuteMessage | ChatCompletionResultMessage) => {
+        if (msg.type === 'execute') {
+            const { id, toolName, args } = msg
+            const tool = toolMap.get(toolName)
+            try {
+                if (!tool) throw new Error(`Tool "${toolName}" not found.`)
+                const result = tool.func(args)
+                const output = result instanceof Promise ? await result : result
+                process.send!({ type: 'result', id, result: output })
+            } catch (err: any) {
+                process.send!({ type: 'result', id, error: err.message || String(err) })
             }
-            process.stdin.setEncoding('utf8')
-            process.stdin.on('readable', () => {
-                let chunk: string | Buffer | null
-                while ((chunk = process.stdin.read()) !== null) {
-                    data +=
-                        typeof chunk === 'string' ? chunk : chunk.toString()
+        } else if (msg.type === 'chatCompletionResult') {
+            const pending = pendingChats.get(msg.id)
+            if (pending) {
+                if (msg.error) {
+                    pending.reject(new Error(msg.error))
+                } else {
+                    pending.resolve(msg.result)
                 }
-            })
-            process.stdin.on('end', () => resolve(data))
-            // 设置超时防止某些环境下 end 不触发
-            setTimeout(() => resolve(data), 100)
-        })
-
-    // 读取 stdin 中的参数 JSON
-    let inputJson = ''
-    try {
-        inputJson = await readStdin()
-    } catch (err: any) {
-        process.stderr.write(`Error reading stdin: ${err.message}\n`)
-        process.exit(1002)
-    }
-
-    let args: any
-    try {
-        args = JSON.parse(inputJson || '{}')
-    } catch {
-        process.stderr.write('Invalid JSON input\n')
-        process.exit(1003)
-    }
-
-    // 执行工具函数，并输出结果
-    try {
-        const result = tool.func(args)
-        const output = result instanceof Promise ? await result : result
-        process.stdout.write(JSON.stringify(output))
-        process.exit(0)
-    } catch (err: any) {
-        // 将异常转为错误 JSON 输出
-        process.stderr.write(JSON.stringify({ error: err.message }))
-        process.exit(2000)
-    }
+                pendingChats.delete(msg.id)
+            }
+        }
+    })
 }
 
-/**
- * 将简写参数定义转换为标准 JSON Schema 对象，用于工具参数声明。
- *
- * @param argsDefs - 参数定义数组，每个元素为：
- *   [参数名, 描述, 类型构造函数, 可选配置?]
- *   类型构造函数可以是 String、Number 或 Boolean。
- *   可选配置为 { optional?: boolean }，默认 required 为 true。
- * @returns 符合 OpenAI function calling 要求的 JSON Schema 对象。
- *
- * 示例：
- *   ToJSONSchema([
- *     ['city', '城市名称', String],
- *     ['date', '日期', String, { optional: true }],
- *   ])
- */
+async function chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+    const id = String(++nextChatId)
+    return new Promise((resolve, reject) => {
+        pendingChats.set(id, { resolve, reject })
+        process.send!({ type: 'chatCompletion', id, request })
+    })
+}
+
 function ToJSONSchema(
     argsDefs: [
         string,
@@ -178,5 +121,6 @@ function ToJSONSchema(
     }
 }
 
-globalThis.serveAsTool = serveAsTool
-globalThis.ToJSONSchema = ToJSONSchema
+;(globalThis as any).serveAsTool = serveAsTool
+;(globalThis as any).chatCompletion = chatCompletion
+;(globalThis as any).ToJSONSchema = ToJSONSchema

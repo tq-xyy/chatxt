@@ -4,34 +4,57 @@ Chatfile 的工具系统让你能用几行代码将任意 Node.js 能力变成 A
 
 ---
 
-## 两个全局函数
+## 三个全局函数
 
-Chatfile 在运行你的工具文件之前，会注入两个全局函数（无需 `require`）：
+Chatfile 在运行你的工具文件之前，会注入三个全局函数（无需 `require`/`import`）：
 
 ### 1. `serveAsTool`
 
 **声明**
 
 ```ts
-async function serveAsTool(
+function serveAsTool(
     ...entries: [
         (...args: any[]) => any, // 业务函数
         string, // 功能描述（给 AI 看）
         Record<string, any>, // 参数 JSON Schema（给 AI 看）
     ][]
-): Promise<never>
+): void
 ```
 
 **功能**  
-注册一个或多个工具，然后根据环境变量 `FUNCTION_CALL` 决定行为：
+注册一个或多个工具函数，并通过 IPC 向主进程报告工具定义。注册后子进程保持运行，等待主进程调用。
 
-- **环境变量未设置**：静默退出，不做任何事（适合误运行时无害）。
-- **设置为空字符串 `""`**：收集所有注册工具的名称、描述、参数 Schema，以 JSON 数组形式输出到标准输出，然后退出。Chatfile 通过此模式获取工具定义。
-- **设置为某个函数名**（如 `"get_weather"`）：从标准输入读取调用参数（JSON），执行对应函数，将其返回值作为 JSON 输出到标准输出，然后退出。
+**不再退出进程**：工具文件末尾调用 `serveAsTool` 后进程不会退出，而是持续监听主进程的调用请求。之后可以在文件内自由使用 `console.log` 输出调试信息。
 
-**注意**：`serveAsTool` 返回 `never`，会以 `process.exit` 结束进程，因此**必须作为工具文件的最后一条语句调用**。
+### 2. `chatCompletion`
 
-### 2. `ToJSONSchema`
+**声明**
+
+```ts
+async function chatCompletion(request: {
+    messages: { role: string; content: string }[]
+    model?: string
+    temperature?: number
+    max_tokens?: number
+}): Promise<any>
+```
+
+**功能**  
+在工具函数内部调用 LLM。请求通过 IPC 发送到主进程，由主进程代理执行，token 用量会自动汇总到 Chatfile 的总计费中。
+
+**示例**
+
+```javascript
+async function summarize({ text }) {
+    const resp = await chatCompletion({
+        messages: [{ role: 'user', content: `总结：${text}` }]
+    })
+    return { summary: resp.choices[0].message.content }
+}
+```
+
+### 3. `ToJSONSchema`
 
 **声明**
 
@@ -243,7 +266,7 @@ AI 会依次调用 `current_time({ timezone: 'Asia/Shanghai' })` 和 `memory_usa
 - **参数接收**：工具函数的第一个参数是一个对象，其键值由 AI 生成的 arguments JSON 决定。请确保参数 Schema 与函数实现一致。
 - **异步支持**：如果函数内有异步操作，直接声明为 `async`，框架会自动 `await`。
 - **错误处理**：函数内可抛出异常，框架会捕获并返回 `{ "error": "错误消息" }`。
-- **禁止输出调试信息**：不要使用 `console.log`，因为标准输出将被框架作为返回值。调试信息可写文件或使用 `console.error`。
+- **调试信息**：可以在工具函数内任意使用 `console.log`，输出会直接显示在终端。
 - **文件位置**：建议将工具文件放在项目目录的 `tools/` 文件夹下，通过相对路径引用（相对于 `.chat.md` 所在目录）。
 
 现在你已经了解了 Chatfile 工具系统的基本用法和高级技巧，可以开始编写自己的工具，享受可编程对话的乐趣了。
