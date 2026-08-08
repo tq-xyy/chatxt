@@ -83,7 +83,6 @@ export function printFinalStatus(status: {
     console.log(thirdLine)
 }
 
-
 export class ProgressReporter {
     private totalTokens = 0
     private prompt = ''

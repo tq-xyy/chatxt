@@ -1,37 +1,29 @@
-import { Config } from '../config'
 import type {
     ChatCompletionRequest,
     ChatCompletionResponse,
-    Message,
-    ToolDefinition,
 } from '../types/openaiApi'
 
-export async function chatCompletionStream(
-    messages: Message[],
-    config: Config,
-    tools: ToolDefinition[] | null = null
+/** 连接 OpenAI 兼容 API 所需的连接信息 */
+export interface ChatCompletionAPI {
+    endpoint: string
+    apiKey: string
+}
+
+/**
+ * 发送请求到 /chat/completions 并统一处理错误。
+ * 纯 HTTP 封装：请求体原样透传，不含任何业务默认值。
+ */
+async function requestChatCompletion(
+    request: ChatCompletionRequest,
+    api: ChatCompletionAPI
 ): Promise<Response> {
-    const body: Partial<ChatCompletionRequest> = {
-        model: config.model,
-        thinking: { type: 'enabled' },
-        reasoning_effort:
-            config.thinkingEffort as ChatCompletionRequest['reasoning_effort'],
-        messages,
-        stream: true,
-        stream_options: { include_usage: true },
-    }
-
-    if (tools) {
-        body.tools = tools
-    }
-
-    const resp = await fetch(`${config.endpoint}/chat/completions`, {
+    const resp = await fetch(`${api.endpoint}/chat/completions`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
+            Authorization: `Bearer ${api.apiKey}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(request),
     })
 
     if (!resp.ok) {
@@ -50,46 +42,20 @@ export async function chatCompletionStream(
     return resp
 }
 
+/** 流式请求：始终以 stream=true 发送，返回原始 Response，由调用方消费 SSE */
+export async function chatCompletionStream(
+    request: ChatCompletionRequest,
+    api: ChatCompletionAPI
+): Promise<Response> {
+    return requestChatCompletion({ ...request, stream: true }, api)
+}
+
+/** 非流式请求：返回解析后的完整响应 */
 export async function chatCompletion(
-    messages: Message[],
-    config: Config,
-    tools: ToolDefinition[] | null = null
+    request: ChatCompletionRequest,
+    api: ChatCompletionAPI
 ): Promise<ChatCompletionResponse> {
-    const body: Partial<ChatCompletionRequest> = {
-        model: config.model,
-        thinking: { type: 'enabled' },
-        reasoning_effort:
-            config.thinkingEffort as ChatCompletionRequest['reasoning_effort'],
-        messages,
-    }
-
-    if (tools) {
-        body.tools = tools
-    }
-
-    const resp = await fetch(`${config.endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-    })
-
-    if (!resp.ok) {
-        let errorText = await resp.text()
-        try {
-            const errorJSON = JSON.parse(errorText)
-            console.log(errorJSON)
-            errorText = errorJSON.error.message
-        } catch {}
-
-        throw new Error(
-            `API Request Failed (${resp.status}), error message: ${errorText}`
-        )
-    }
-
+    const resp = await requestChatCompletion(request, api)
     const json = await resp.json()
-
     return json as ChatCompletionResponse
 }

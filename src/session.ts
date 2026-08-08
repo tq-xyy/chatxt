@@ -90,6 +90,7 @@ export class ChatSession {
                 '',
             ].join('\n')
             await writeFile(this.chatFilePath, content, 'utf-8')
+            this.reporter.close()
             return
         }
 
@@ -103,6 +104,7 @@ export class ChatSession {
                 (this.messages.at(-1)?.content?.trimEnd().length || 0) < 1
             ) {
                 printWarningMessage('No user input.')
+                this.reporter.close()
                 return
             }
 
@@ -111,29 +113,49 @@ export class ChatSession {
             this.reporter.update(0)
 
             let outputFlag: ChatRole | boolean = 'UNKNOWN'
+            let retryTimes: number = 0
 
             while (outputFlag !== false) {
-                const resp = await chatCompletionStream(
-                    this.messages,
-                    this.config,
-                    this.toolRunner.getDefinitions()
-                )
-
-                const toolCalls: ToolCall[] = []
-                this.messages.push({
-                    role: 'assistant',
-                    reasoning_content: '',
-                    content: '',
-                })
-
-                for await (const chunk of parseSSEStream<ChatCompletionChunk>(
-                    resp
-                )) {
-                    outputFlag = await this.handleChunk(
-                        chunk,
-                        outputFlag,
-                        toolCalls
+                this.reporter.setPrompt('Requesting...')
+                try {
+                    const resp = await chatCompletionStream(
+                        {
+                            model: this.config.model,
+                            thinking: { type: 'enabled' },
+                            reasoning_effort: this.config
+                                .thinkingEffort as ChatCompletionRequest['reasoning_effort'],
+                            messages: this.messages,
+                            stream_options: { include_usage: true },
+                            tools: this.toolRunner.getDefinitions(),
+                        },
+                        this.config
                     )
+
+                    const toolCalls: ToolCall[] = []
+                    this.messages.push({
+                        role: 'assistant',
+                        reasoning_content: '',
+                        content: '',
+                    })
+
+                    for await (const chunk of parseSSEStream<ChatCompletionChunk>(
+                        resp
+                    )) {
+                        outputFlag = await this.handleChunk(
+                            chunk,
+                            outputFlag,
+                            toolCalls
+                        )
+                    }
+                } catch (err) {
+                    retryTimes += 1
+                    if (retryTimes <= 3) {
+                        console.log()
+                        printExceptionMessage(err)
+                        printWarningMessage(`Retry... (${retryTimes}/3)`)
+                    } else {
+                        throw new Error('Retry limit exceeds.', { cause: err })
+                    }
                 }
             }
 
@@ -164,6 +186,10 @@ export class ChatSession {
     ): Promise<ChatRole | boolean> {
         if (chunk.usage) {
             this.addUsageRecord(chunk.usage)
+        }
+
+        if (chunk.choices.length === 0) {
+            throw new Error('No choices in the chunk')
         }
 
         const choice = chunk.choices[0]
@@ -255,46 +281,81 @@ export class ChatSession {
             )
         }
 
-        const body: Partial<ChatCompletionRequest> = {
-            ...request,
-            model: request.model || this.config.model,
-            messages: request.messages,
-            thinking: request.thinking ?? { type: 'enabled' },
-            reasoning_effort:
-                request.reasoning_effort ||
-                (this.config.thinkingEffort as ChatCompletionRequest['reasoning_effort']),
-            temperature: request.temperature,
-            max_tokens: request.max_tokens,
-        }
-
-        const resp = await fetch(
-            `${this.config.endpoint}/chat/completions`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${this.config.apiKey}`,
-                },
-                body: JSON.stringify(body),
-            }
-        )
-
-        if (!resp.ok) {
-            let errorText = await resp.text()
-            try {
-                const errorJSON = JSON.parse(errorText)
-                errorText = errorJSON.error.message
-            } catch {}
+        if (request.tools) {
             throw new Error(
-                `API Request Failed (${resp.status}), error message: ${errorText}`
+                'chatCompletion not support tools, please use `fetch`'
             )
         }
 
-        const result = (await resp.json()) as ChatCompletionResponse
+        const resp = await chatCompletionStream(
+            {
+                ...request,
+                model: request.model || this.config.model,
+                thinking: request.thinking ?? { type: 'enabled' },
+                reasoning_effort:
+                    request.reasoning_effort ||
+                    (this.config
+                        .thinkingEffort as ChatCompletionRequest['reasoning_effort']),
+                stream_options: { include_usage: true },
+            },
+            this.config
+        )
 
-        if (result.usage) {
-            this.addUsageRecord(result.usage)
+        const result: ChatCompletionResponse = {
+            id: '',
+            object: 'chat.completion',
+            created: 0,
+            model: request.model || this.config.model,
+            system_fingerprint: '',
+            choices: [
+                {
+                    index: 0,
+                    finish_reason: 'stop',
+                    message: {
+                        role: 'assistant',
+                        content: '',
+                        reasoning_content: '',
+                    },
+                    logprobs: null,
+                },
+            ],
+            usage: undefined,
         }
+
+        this.reporter.setPrompt('Call Function | Sub Agent Generating...')
+
+        for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
+            if (chunk.usage) {
+                this.addUsageRecord(chunk.usage)
+                result.usage = chunk.usage
+            }
+
+            const choice = chunk.choices[0]
+            if (!choice) continue
+
+            const message = result.choices[0].message
+            if (choice.delta?.reasoning_content) {
+                message.reasoning_content =
+                    (message.reasoning_content ?? '') +
+                    choice.delta.reasoning_content
+                this.reporter.update(1)
+            }
+            if (choice.delta?.content) {
+                message.content =
+                    (message.content ?? '') + choice.delta.content
+                this.reporter.update(1)
+            }
+            if (choice.finish_reason) {
+                result.choices[0].finish_reason = choice.finish_reason
+            }
+
+            result.id = chunk.id || result.id
+            result.created = chunk.created || result.created
+            result.model = chunk.model || result.model
+            result.system_fingerprint =
+                chunk.system_fingerprint || result.system_fingerprint
+        }
+
         return result
     }
 

@@ -37,6 +37,10 @@ export interface WarningMessage {
     message: string
 }
 
+export interface ExitMessage {
+    type: 'exit'
+}
+
 export type IPCMessage =
     | RegisterMessage
     | ExecuteMessage
@@ -44,3 +48,4 @@ export type IPCMessage =
     | ChatCompletionMessage
     | ChatCompletionResultMessage
     | WarningMessage
+    | ExitMessage

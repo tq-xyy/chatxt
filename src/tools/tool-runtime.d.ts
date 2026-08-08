@@ -1,10 +1,15 @@
-import type { ChatCompletionRequest, ChatCompletionResponse } from '../types/openaiApi'
+import type {
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+} from '../types/openaiApi'
 
 export {}
 
 declare global {
     function serveAsTool(
-        ...entries: [(...args: any[]) => any, string, any][]
+        ...entries: (
+            [(...args: any[]) => any, string, any] | null | undefined | false
+        )[]
     ): void
 
     function chatCompletion(

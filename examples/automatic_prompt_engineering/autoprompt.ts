@@ -37,8 +37,11 @@ async function testPrompt({
                     { role: 'system', content: prompt },
                     { role: 'user', content: input },
                 ],
-                thinking: thinking ? { type: 'enabled' } : { type: 'disabled' },
-                reasoning_effort: thinking_effort as 'high' | 'max' | undefined,
+                thinking: thinking
+                    ? { type: 'enabled' }
+                    : { type: 'disabled' },
+                reasoning_effort: thinking_effort as
+                    'high' | 'max' | undefined,
             })
             const output = json.choices[0]?.message?.content ?? ''
             const generation_time = performance.now() - startTime
