@@ -30,8 +30,7 @@ async function requestChatCompletion(
         let errorText = await resp.text()
         try {
             const errorJSON = JSON.parse(errorText)
-            console.log(errorJSON)
-            errorText = errorJSON.error.message
+            errorText = errorJSON.error.message || errorText
         } catch {}
 
         throw new Error(

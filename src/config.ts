@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
 import { join, dirname } from 'path'
+import { printWarningMessage } from './tui'
 
 export interface Config {
     endpoint: string
@@ -90,7 +91,7 @@ export async function loadConfig(
             await access(allowFile, constants.F_OK)
             // 标记文件存在，不发出警告
         } catch {
-            console.warn(
+            printWarningMessage(
                 'Warning: API key found in .chatfilerc/config.json. ' +
                     'It is recommended to use OPENAI_API_KEY environment variable instead. ' +
                     'To suppress this warning, create .chatfilerc/allow-apikey-in-project marker file.'
@@ -119,7 +120,7 @@ export async function initConfig(): Promise<void> {
     // 检查配置文件是否已存在
     try {
         await access(configPath, constants.F_OK)
-        console.error('.chatfilerc/config.json already exists.')
+        printWarningMessage('.chatfilerc/config.json already exists.')
         return
     } catch {
         // 文件不存在，继续创建
