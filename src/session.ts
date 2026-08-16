@@ -188,8 +188,9 @@ export class ChatSession {
             this.addUsageRecord(chunk.usage)
         }
 
-        if (chunk.choices.length === 0) {
-            throw new Error('No choices in the chunk')
+        if (!chunk.usage && chunk.choices.length === 0) {
+            // discard the chunk
+            return outputFlag
         }
 
         const choice = chunk.choices[0]
