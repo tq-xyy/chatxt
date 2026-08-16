@@ -4,6 +4,7 @@ import * as path from 'path'
 
 import type { Message, ToolCall } from './types/openaiApi'
 import type { Config } from './config'
+import { printWarningMessage } from './tui'
 
 export type ChatRole =
     | 'UNKNOWN'
@@ -26,12 +27,13 @@ const VALID_ROLES: ChatRole[] = [
     'TOOLRESPONSE',
 ]
 
-type DirectiveType = 'file' | 'tool' //| 'pipe'  | 'include'
+type DirectiveType = 'file' | 'tool' | 'include' // | 'pipe'
 
 const VALID_DIRECTIVES: DirectiveType[] = [
     'file',
     'tool',
-    //'pipe', 'include'
+    'include',
+    //'pipe',
 ]
 
 interface Directive {
@@ -187,41 +189,43 @@ export class ChatFile {
                         : `@${comp.type}(${comp.arg})`
                 continue
             }
+
+            const rootDir = path.dirname(this.chatFilePath)
+
             if (typeof comp === 'string') {
                 content += comp
+            } else if (comp.type === 'tool') {
+                toolSet.add(path.join(rootDir, comp.arg))
             } else if (comp.type === 'file') {
-                const filePath = path.join(
-                    path.dirname(this.chatFilePath),
-                    comp.arg
-                )
-                if (!this.referredFile.has(filePath)) {
-                    this.referredFile.add(filePath)
-                    if (!existsSync(filePath)) {
-                        console.error('External file open failed: ' + filePath)
-                    } else {
-                        try {
-                            const text = await readFile(
-                                path.join(
-                                    path.dirname(this.chatFilePath),
-                                    comp.arg
-                                ),
-                                'utf-8'
-                            )
+                const filePath = path.join(rootDir, comp.arg)
 
-                            suffixContent += `===========\nFile (${comp.arg}):\n${text}\n`
-                        } catch (err) {
-                            console.error(
-                                `External file open failed: ${filePath} (${(err as Error).toString()})`
-                            )
-                        }
+                if (!this.referredFile.has(filePath)) {
+                    try {
+                        const text = await readFile(filePath, 'utf-8')
+
+                        suffixContent += `===========\nFile (${comp.arg}):\n${text}\n`
+                        this.referredFile.add(filePath)
+                    } catch (err) {
+                        printWarningMessage(
+                            `External file open failed: ${filePath} (${(err as Error).toString()})`
+                        )
                     }
                 }
 
                 content += `${comp.arg}`
-            } else if (comp.type === 'tool') {
-                toolSet.add(
-                    path.join(path.dirname(this.chatFilePath), comp.arg)
-                )
+            } else if (comp.type === 'include') {
+                const filePath = path.join(rootDir, comp.arg)
+
+                try {
+                    const text = await readFile(filePath, 'utf-8')
+
+                    content += `${text}\n`
+                    this.referredFile.add(filePath)
+                } catch (err) {
+                    printWarningMessage(
+                        `Include file open failed: ${filePath} (${(err as Error).toString()})`
+                    )
+                }
             } else {
                 content += `@${comp.type}(${comp.arg})`
             }
