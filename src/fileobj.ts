@@ -181,15 +181,6 @@ export class ChatFile {
         let toolSet = new Set<string>()
 
         for (const comp of block.components) {
-            if (block.role !== 'USER') {
-                // dont parse directives from non-user block
-                content +=
-                    typeof comp === 'string'
-                        ? comp
-                        : `@${comp.type}(${comp.arg})`
-                continue
-            }
-
             const rootDir = path.dirname(this.chatFilePath)
 
             if (typeof comp === 'string') {
@@ -233,7 +224,7 @@ export class ChatFile {
 
         return [
             {
-                role: 'user',
+                role: block.role === 'SYSTEM' ? 'system' : 'user',
                 content:
                     content.trimEnd() +
                     (suffixContent.length > 0
@@ -296,7 +287,7 @@ export class ChatFile {
         const tools = new Set<string>()
 
         for (const block of blocks) {
-            if (block.role === 'USER') {
+            if (block.role === 'SYSTEM' || block.role === 'USER') {
                 const [msg, toolSet] =
                     await this.applyDirectiveToMessage(block)
                 for (const toolPath of toolSet) {
@@ -304,7 +295,7 @@ export class ChatFile {
                 }
                 messages.push(msg)
             }
-            if (block.role === 'SYSTEM' || block.role === 'ASSISTANT') {
+            if (block.role === 'ASSISTANT') {
                 messages.push(this.convertPlainBlockToMessage(block))
             }
             if (block.role === 'TOOL' && !this.config.excludeHistoryToolCall) {
