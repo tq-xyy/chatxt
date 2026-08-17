@@ -122,11 +122,22 @@ interface Choice {
 export interface Usage {
     completion_tokens: number
     prompt_tokens: number
-    prompt_cache_hit_tokens: number
-    prompt_cache_miss_tokens: number
     total_tokens: number
+
+    /** Only deepseek */
+    prompt_cache_hit_tokens: number
+    /** Only deepseek */
+    prompt_cache_miss_tokens: number
+
+    prompt_tokens_details?: {
+        audio_tokens?: number
+        cached_tokens: number
+        cache_write_tokens?: number
+    }
+
     completion_tokens_details?: {
-        reasoning_tokens?: number
+        audio_tokens?: number
+        reasoning_tokens: number
     }
 }
 
@@ -155,7 +166,8 @@ export interface ToolCallChunk {
 
 interface ChoiceDelta {
     content: string | null // 必需，但可为 null
-    reasoning_content?: string | null
+    reasoning_content?: string | null // deepseek, kimi
+    reasoning?: string | null // hy3
     role?: 'assistant'
     tool_calls?: ToolCallChunk[] | null // 可为 null
 }

@@ -8,8 +8,10 @@ import type {
     ToolCall,
     Usage,
     Message,
+    ToolCallChunk,
 } from './types/openaiApi'
-import { mergeUsage } from './utils/computeCost'
+import { mergeNormalizedUsage, normalizeUsage } from './utils/computeCost'
+import type { NormalizedUsage } from './utils/computeCost'
 import type { Config } from './config'
 import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'
@@ -53,14 +55,7 @@ export class ChatSession {
     private file: ChatFile
     private toolRunner: ToolRunner
     private messages: Message[] = []
-    private sumUsage: Usage = {
-        completion_tokens: 0,
-        prompt_tokens: 0,
-        prompt_cache_hit_tokens: 0,
-        prompt_cache_miss_tokens: 0,
-        total_tokens: 0,
-        completion_tokens_details: { reasoning_tokens: 0 },
-    }
+    private sumUsage: NormalizedUsage
     private sumToolCall = 0
     private chatTurn = 0
     private startTime: number
@@ -75,6 +70,8 @@ export class ChatSession {
         this.startTime = performance.now()
         this.reporter = new ProgressReporter('Requesting...')
         this.toolRunner = new ToolRunner(this)
+
+        this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
     }
 
     async loop(): Promise<void> {
@@ -121,7 +118,8 @@ export class ChatSession {
                     const resp = await chatCompletionStream(
                         {
                             model: this.config.model,
-                            thinking: { type: 'enabled' },
+                            /* leave it default */
+                            // thinking: { type: 'enabled' },
                             reasoning_effort: this.config
                                 .thinkingEffort as ChatCompletionRequest['reasoning_effort'],
                             messages: this.messages,
@@ -188,44 +186,50 @@ export class ChatSession {
             this.addUsageRecord(chunk.usage)
         }
 
-        if (!chunk.usage && chunk.choices.length === 0) {
-            // discard the chunk
+        if (chunk.choices.length === 0) {
+            // discard empty chunk
             return outputFlag
         }
 
         const choice = chunk.choices[0]
 
-        if (choice.delta?.reasoning_content && outputFlag !== 'THINKING') {
+        const content: string | null | undefined = choice.delta?.content
+        const reasoning: string | null | undefined =
+            choice.delta?.reasoning_content || // deepseek, kimi
+            choice.delta?.reasoning // others
+        const toolCallDelta: ToolCallChunk[] | null | undefined =
+            choice.delta?.tool_calls
+
+        if (reasoning && outputFlag !== 'THINKING') {
             this.file.appendThinkingText('', true)
             this.reporter.setPrompt('Thinking...')
             outputFlag = 'THINKING'
         }
-        if (choice.delta?.reasoning_content) {
-            this.file.appendThinkingText(choice.delta.reasoning_content, false)
+        if (reasoning) {
+            this.file.appendThinkingText(reasoning, false)
             // @ts-expect-error
-            this.messages.at(-1)!.reasoning_content +=
-                choice.delta.reasoning_content
+            this.messages.at(-1)!.reasoning_content += reasoning
             this.reporter.update(1)
         }
 
-        if (choice.delta?.content && outputFlag !== 'ASSISTANT') {
+        if (content && outputFlag !== 'ASSISTANT') {
             this.file.appendRoleLine('ASSISTANT')
             outputFlag = 'ASSISTANT'
             this.reporter.setPrompt('Generating Answer...')
         }
-        if (choice.delta?.content) {
-            this.file.appendContent(choice.delta.content)
-            this.messages.at(-1)!.content += choice.delta.content
+        if (content) {
+            this.file.appendContent(content)
+            this.messages.at(-1)!.content += content
             this.reporter.update(1)
         }
 
-        if (choice.delta?.tool_calls && outputFlag !== 'TOOL') {
+        if (toolCallDelta && outputFlag !== 'TOOL') {
             this.file.appendRoleLine('TOOL')
             outputFlag = 'TOOL'
             this.reporter.setPrompt('Generating Function Call...')
         }
-        if (choice.delta?.tool_calls) {
-            for (const tc of choice.delta.tool_calls) {
+        if (toolCallDelta) {
+            for (const tc of toolCallDelta) {
                 if (tc.type === 'function') {
                     this.sumToolCall++
                     tc.id = this.generateToolCallId()
@@ -237,15 +241,18 @@ export class ChatSession {
                 }
             }
 
-            mergeToolCallChunks(toolCalls, choice.delta.tool_calls)
+            mergeToolCallChunks(toolCalls, toolCallDelta)
 
             this.reporter.update(1)
         }
 
         if (choice.finish_reason === 'tool_calls') {
-            await this.handleToolCalls(toolCalls)
-            outputFlag = 'UNKNOWN'
-        } else if (choice.finish_reason !== null) {
+            // discard duplicate tool calls
+            if (this.messages.at(-1)?.role !== 'tool') {
+                await this.handleToolCalls(toolCalls)
+                outputFlag = 'UNKNOWN'
+            }
+        } else if (choice.finish_reason) {
             processFinishReason(choice)
             outputFlag = false
         }
@@ -362,7 +369,10 @@ export class ChatSession {
 
     private addUsageRecord(usage: Usage) {
         this.reporter.clear()
-        this.sumUsage = mergeUsage(this.sumUsage, usage)
+        this.sumUsage = mergeNormalizedUsage(
+            this.sumUsage,
+            normalizeUsage(usage)
+        )
     }
 
     private generateToolCallId(): string {

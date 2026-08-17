@@ -1,5 +1,5 @@
-import type { Usage } from './types/openaiApi'
-import { computeTokenCostCNY } from './utils/computeCost'
+import type { NormalizedUsage } from './utils/computeCost'
+import { computeTokenCostCNY } from './utils/pricing'
 
 import chalk from 'chalk'
 
@@ -26,7 +26,7 @@ export function printExceptionMessage(err: unknown): void {
 }
 
 export function printFinalStatus(status: {
-    usage: Usage
+    usage: NormalizedUsage
     startTime: number
     config: { model: string }
     toolCallCount: number
@@ -40,13 +40,10 @@ export function printFinalStatus(status: {
     console.log(chalk.green('✔ Generation completed.'))
 
     // 第二行：Token 总计与分类
-    const cachedPart = usage.prompt_cache_hit_tokens
-        ? ' (' +
-          chalk.gray('cached ') +
-          chalk.gray(fn(usage.prompt_cache_hit_tokens)) +
-          ') '
+    const cachedPart = usage.cached
+        ? ' (' + chalk.gray('cached ') + chalk.gray(fn(usage.cached)) + ') '
         : ''
-    const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens
+    const reasoningTokens = usage.thinking
     const thinkingPart = reasoningTokens
         ? ' (' +
           chalk.magenta('thinking ') +
@@ -55,13 +52,13 @@ export function printFinalStatus(status: {
         : ''
     console.log(
         chalk.white.bold('Total tokens: ') +
-            chalk.yellow(fn(usage.total_tokens)) +
+            chalk.yellow(fn(usage.input + usage.output)) +
             chalk.italic(
                 '  ·  input for ' +
-                    chalk.blue(fn(usage.prompt_tokens)) +
+                    chalk.blue(fn(usage.input)) +
                     cachedPart +
                     ', output for ' +
-                    chalk.blue(fn(usage.completion_tokens)) +
+                    chalk.blue(fn(usage.output)) +
                     thinkingPart
             )
     )

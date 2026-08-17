@@ -4,7 +4,7 @@ import type {
 } from '../types/openaiApi'
 
 /** 连接 OpenAI 兼容 API 所需的连接信息 */
-export interface ChatCompletionAPI {
+type ChatCompletionAPI = {
     endpoint: string
     apiKey: string
 }
