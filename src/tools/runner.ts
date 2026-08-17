@@ -158,7 +158,7 @@ export class ToolRunner {
                         tool_call_id: toolCall.id,
                         content: JSON.stringify({
                             status: 'error',
-                            message: `Error executing tool "${toolCall.function.name}": ${err.message}`,
+                            message: `Error executing tool ${toolCall.function.name}: ${err.message}`,
                         }),
                     })
                 },

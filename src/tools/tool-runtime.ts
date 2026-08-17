@@ -82,10 +82,16 @@ function serveAsTool(
                         result instanceof Promise ? await result : result
                     process.send!({ type: 'result', id, result: output })
                 } catch (err: any) {
+                    let error: string
+                    if (err instanceof Error) {
+                        error = `${err.name}:${err.message}\n${err.stack}`
+                    } else {
+                        error = String(err)
+                    }
                     process.send!({
                         type: 'result',
                         id,
-                        error: err.message || String(err),
+                        error,
                     })
                 }
             } else if (msg.type === 'chatCompletionResult') {
