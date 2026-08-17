@@ -26,12 +26,12 @@ interface AssistantMessage {
     content: string | null // 必需，但可为 null
     role: 'assistant'
     name?: string
-    prefix?: boolean // Beta
-    reasoning_content?: string | null // Beta，可为 null
+    reasoning_content?: string | null // deepseek, kimi
+    reasoning?: string | null // hy3
     tool_calls?: ToolCall[] | null // 可为 null
 }
 
-interface ToolMessage {
+export interface ToolMessage {
     content: string
     role: 'tool'
     tool_call_id: string
@@ -68,7 +68,7 @@ export interface ChatCompletionRequest {
     messages: Message[] // Required
     model: string // Required, 'deepseek-v4-flash' | 'deepseek-v4-pro'
     thinking?: {
-        type?: 'enabled' | 'disabled'
+        type?: 'enabled' | 'disabled' | /* mimimax only */ 'adaptive'
     } | null
     reasoning_effort?: 'high' | 'max' | null
     max_tokens?: number | null
@@ -84,28 +84,9 @@ export interface ChatCompletionRequest {
     top_p?: number | null
     tools?: ToolDefinition[] | null
     tool_choice?: ToolChoice | null
-    logprobs?: boolean | null
-    top_logprobs?: number | null
-    user_id?: string | null
 }
 
 // ======================== 响应类型 ========================
-
-interface LogProbToken {
-    token: string
-    logprob: number
-    bytes: number[] | null
-    top_logprobs: {
-        token: string
-        logprob: number
-        bytes: number[] | null
-    }[]
-}
-
-interface LogProbs {
-    content: LogProbToken[] | null
-    reasoning_content?: LogProbToken[] | null
-}
 
 interface Choice {
     finish_reason:
@@ -116,7 +97,6 @@ interface Choice {
         | 'insufficient_system_resource'
     index: number
     message: AssistantMessage
-    logprobs: LogProbs | null
 }
 
 export interface Usage {
@@ -143,12 +123,7 @@ export interface Usage {
 
 export interface ChatCompletionResponse {
     /** 非流式 200 响应 */
-    id: string
     choices: Choice[]
-    created: number
-    model: string
-    system_fingerprint: string
-    object: 'chat.completion'
     usage?: Usage
 }
 
@@ -174,7 +149,6 @@ interface ChoiceDelta {
 
 interface ChoiceChunk {
     delta: ChoiceDelta
-    logprobs: LogProbs | null
     finish_reason:
         | 'stop'
         | 'length'
@@ -187,11 +161,6 @@ interface ChoiceChunk {
 
 export interface ChatCompletionChunk {
     /** 流式 200 响应中的一个 chunk */
-    id: string
     choices: ChoiceChunk[]
-    created: number
-    model: string
-    system_fingerprint: string
-    object: 'chat.completion.chunk'
     usage?: Usage | null
 }

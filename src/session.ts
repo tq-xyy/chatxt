@@ -26,6 +26,7 @@ import {
     printWarningMessage,
     ProgressReporter,
 } from './tui'
+import { estimateTokens } from './utils/estimateTokens'
 
 function processFinishReason(choice: ChatCompletionChunk['choices'][0]): void {
     switch (choice.finish_reason) {
@@ -209,7 +210,7 @@ export class ChatSession {
             this.file.appendThinkingText(reasoning, false)
             // @ts-expect-error
             this.messages.at(-1)!.reasoning_content += reasoning
-            this.reporter.update(1)
+            this.reporter.update(estimateTokens(reasoning))
         }
 
         if (content && outputFlag !== 'ASSISTANT') {
@@ -220,7 +221,7 @@ export class ChatSession {
         if (content) {
             this.file.appendContent(content)
             this.messages.at(-1)!.content += content
-            this.reporter.update(1)
+            this.reporter.update(estimateTokens(content))
         }
 
         if (toolCallDelta && outputFlag !== 'TOOL') {
@@ -230,20 +231,12 @@ export class ChatSession {
         }
         if (toolCallDelta) {
             for (const tc of toolCallDelta) {
-                if (tc.type === 'function') {
-                    this.sumToolCall++
-                    tc.id = this.generateToolCallId()
-                    this.file.appendContent(
-                        `\n${tc.function.name} (${tc.id}): `
-                    )
-                } else {
-                    this.file.appendContent(tc.function.arguments)
-                }
+                tc.id = this.generateToolCallId()
+                this.file.appendToolCallChunkToToolBlock(tc)
+                this.reporter.update(estimateTokens(tc.function.arguments))
             }
 
             mergeToolCallChunks(toolCalls, toolCallDelta)
-
-            this.reporter.update(1)
         }
 
         if (choice.finish_reason === 'tool_calls') {
@@ -263,6 +256,7 @@ export class ChatSession {
     private async handleToolCalls(toolCalls: ToolCall[]) {
         // @ts-expect-error
         this.messages.at(-1)!.tool_calls = toolCalls
+        this.sumToolCall += toolCalls.length
 
         this.reporter.setPrompt('Call Function...')
         this.reporter.update(0)
@@ -270,14 +264,7 @@ export class ChatSession {
         const msgs = await this.toolRunner.executeAll(toolCalls)
 
         this.messages.push(...msgs)
-        this.file.appendRoleLine('TOOLRESPONSE')
-        for (const msg of msgs) {
-            if (msg.role === 'tool') {
-                this.file.appendContent(
-                    `${msg.tool_call_id}: ${msg.content}\n`
-                )
-            }
-        }
+        this.file.appendToolMessagesToToolResponseBlock(msgs)
     }
 
     async subAgentChatCompletion(
@@ -295,26 +282,19 @@ export class ChatSession {
             )
         }
 
+        if (!request.model) {
+            request.model = this.config.model
+        }
+
         const resp = await chatCompletionStream(
             {
                 ...request,
-                model: request.model || this.config.model,
-                thinking: request.thinking ?? { type: 'enabled' },
-                reasoning_effort:
-                    request.reasoning_effort ||
-                    (this.config
-                        .thinkingEffort as ChatCompletionRequest['reasoning_effort']),
                 stream_options: { include_usage: true },
             },
             this.config
         )
 
         const result: ChatCompletionResponse = {
-            id: '',
-            object: 'chat.completion',
-            created: 0,
-            model: request.model || this.config.model,
-            system_fingerprint: '',
             choices: [
                 {
                     index: 0,
@@ -324,7 +304,6 @@ export class ChatSession {
                         content: '',
                         reasoning_content: '',
                     },
-                    logprobs: null,
                 },
             ],
             usage: undefined,
@@ -356,12 +335,6 @@ export class ChatSession {
             if (choice.finish_reason) {
                 result.choices[0].finish_reason = choice.finish_reason
             }
-
-            result.id = chunk.id || result.id
-            result.created = chunk.created || result.created
-            result.model = chunk.model || result.model
-            result.system_fingerprint =
-                chunk.system_fingerprint || result.system_fingerprint
         }
 
         return result

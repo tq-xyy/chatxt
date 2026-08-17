@@ -1,6 +1,6 @@
-import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises'
-import * as path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFile, writeFile, readdir, mkdir } from 'fs/promises'
+import * as path from 'path'
+import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21,9 +21,9 @@ async function readPrompt() {
 }
 
 async function testPrompt({
-    thinking = true,
+    thinking = 'enabled',
     thinking_effort,
-}: { thinking?: boolean; thinking_effort?: string } = {}) {
+}: { thinking?: string; thinking_effort?: string } = {}) {
     const prompt = await readFile(PROMPT_FILE, 'utf-8')
     const files = await readdir(TESTS_DIR)
     const testFiles = files.filter(f => f.endsWith('.txt')).sort()
@@ -37,9 +37,7 @@ async function testPrompt({
                     { role: 'system', content: prompt },
                     { role: 'user', content: input },
                 ],
-                thinking: thinking
-                    ? { type: 'enabled' }
-                    : { type: 'disabled' },
+                thinking: { type: thinking },
                 reasoning_effort: thinking_effort as
                     'high' | 'max' | undefined,
             })
@@ -53,7 +51,7 @@ async function testPrompt({
 
 async function saveAndTestPrompt(options: {
     prompt: string
-    thinking?: boolean
+    thinking?: string
     thinking_effort?: string
 }) {
     const { prompt, ...generateOptions } = options
@@ -81,8 +79,8 @@ serveAsTool(
             type: 'object',
             properties: {
                 thinking: {
-                    type: 'boolean',
-                    description: '是否开启思考模式，默认 true',
+                    type: 'string',
+                    description: '思考模式，默认为 enabled',
                 },
                 thinking_effort: {
                     type: 'string',
@@ -90,7 +88,6 @@ serveAsTool(
                     enum: ['high', 'max'],
                 },
             },
-            required: ['thinking'],
         },
     ],
     [

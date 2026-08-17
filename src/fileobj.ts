@@ -1,8 +1,12 @@
 import { readFile, appendFile } from 'fs/promises'
-import { existsSync } from 'fs'
 import * as path from 'path'
 
-import type { Message, ToolCall } from './types/openaiApi'
+import type {
+    Message,
+    ToolCall,
+    ToolCallChunk,
+    ToolMessage,
+} from './types/openaiApi'
 import type { Config } from './config'
 import { printWarningMessage } from './tui'
 
@@ -258,6 +262,15 @@ export class ChatFile {
         return toolCalls
     }
 
+    public appendToolCallChunkToToolBlock(tc: ToolCallChunk) {
+        if (tc.type === 'function') {
+            this.appendContent(`\n${tc.function.name} (${tc.id}): `)
+        }
+        if (tc.function.arguments) {
+            this.appendContent(tc.function.arguments)
+        }
+    }
+
     private parseToolResponseBlockToMessages(block: Block): Message[] {
         const toolMessages: Message[] = []
 
@@ -271,6 +284,13 @@ export class ChatFile {
             })
         }
         return toolMessages
+    }
+
+    public appendToolMessagesToToolResponseBlock(msgs: ToolMessage[]) {
+        this.appendRoleLine('TOOLRESPONSE')
+        for (const msg of msgs) {
+            this.appendContent(`${msg.tool_call_id}: ${msg.content}\n`)
+        }
     }
 
     async buildPrompt(): Promise<[Message[], string[]]> {

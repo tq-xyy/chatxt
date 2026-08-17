@@ -1,7 +1,7 @@
 import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import type { ToolDefinition, ToolCall, Message } from '../types/openaiApi'
+import type { ToolDefinition, ToolCall, ToolMessage } from '../types/openaiApi'
 import type {
     ResultMessage,
     ChatCompletionMessage,
@@ -120,7 +120,7 @@ export class ToolRunner {
         return Array.from(this.toolDefinitions.values()).map(v => v.definition)
     }
 
-    async execute(toolCall: ToolCall): Promise<Message> {
+    async execute(toolCall: ToolCall): Promise<ToolMessage> {
         const {
             id,
             function: { name, arguments: argsJson },
@@ -177,7 +177,7 @@ export class ToolRunner {
         }))
     }
 
-    executeAll(toolCalls: ToolCall[]): Promise<Message[]> {
+    executeAll(toolCalls: ToolCall[]): Promise<ToolMessage[]> {
         return Promise.all(toolCalls.map(tc => this.execute(tc)))
     }
 
