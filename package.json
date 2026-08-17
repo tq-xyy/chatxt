@@ -1,6 +1,6 @@
 {
     "name": "chatfile",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "type": "module",
     "description": "Chatfile - AI conversations recorded as .chat.md files",
     "bin": {
@@ -21,8 +21,8 @@
     "devDependencies": {
         "@types/node": "^26.1.0",
         "esbuild": "^0.28.1",
-        "esno": "^4.8.0",
         "prettier": "^3.9.4",
-        "typescript": "^5.8.3"
+        "typescript": "^5.8.3",
+        "tsx": "^4.23.12"
     }
 }
