@@ -1,18 +1,15 @@
 import type {
     ChatCompletionRequest,
     ChatCompletionResponse,
-} from '../types/openaiApi'
+    ToolCall,
+    ToolCallChunk,
+} from '../types/openai-compatible-api'
 
-/** 连接 OpenAI 兼容 API 所需的连接信息 */
 type ChatCompletionAPI = {
     endpoint: string
     apikey: string
 }
 
-/**
- * 发送请求到 /chat/completions 并统一处理错误。
- * 纯 HTTP 封装：请求体原样透传，不含任何业务默认值。
- */
 async function requestChatCompletion(
     request: ChatCompletionRequest,
     api: ChatCompletionAPI
@@ -46,7 +43,6 @@ async function requestChatCompletion(
     return resp
 }
 
-/** 流式请求：始终以 stream=true 发送，返回原始 Response，由调用方消费 SSE */
 export async function chatCompletionStream(
     request: ChatCompletionRequest,
     api: ChatCompletionAPI
@@ -54,7 +50,6 @@ export async function chatCompletionStream(
     return requestChatCompletion({ ...request, stream: true }, api)
 }
 
-/** 非流式请求：返回解析后的完整响应 */
 export async function chatCompletion(
     request: ChatCompletionRequest,
     api: ChatCompletionAPI
@@ -62,4 +57,24 @@ export async function chatCompletion(
     const resp = await requestChatCompletion(request, api)
     const json = await resp.json()
     return json as ChatCompletionResponse
+}
+
+export function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
+    const toolCallList: ToolCall[] = []
+
+    for (const chunk of chunks) {
+        if (!chunk.function.name) {
+            const index = toolCallList.findIndex(
+                block => block.index === chunk.index
+            )
+            if (index === -1) {
+                throw new Error(`unexcepted tool call index: ${chunk.index}`)
+            }
+            toolCallList[index].function.arguments += chunk.function.arguments
+        } else {
+            toolCallList.push(chunk as ToolCall)
+        }
+    }
+
+    return toolCallList
 }

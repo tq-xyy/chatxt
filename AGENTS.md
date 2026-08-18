@@ -21,18 +21,6 @@ chatfile <file>     # 处理 .chat.txt 文件
 chatfile init-config  # 生成 .chatfilerc/config.json
 ```
 
-## 项目结构
-
-完整架构说明见 `docs/architecture_zh.md`；架构有变化时同步更新该文档。
-
-- `src/cli.ts` — CLI 入口
-- `src/config.ts` — 配置加载与合并
-- `src/session.ts` — 会话核心循环
-- `src/fileobj.ts` — .chat.txt 解析与写入
-- `src/tools/` — 工具子进程系统（IPC）
-- `src/utils/` — API 封装、SSE 解析、成本估算
-- `examples/` — 工具使用示例
-
 ## 编码规范
 
 - 4 空格缩进，无分号，字符串用双引号
@@ -45,7 +33,6 @@ chatfile init-config  # 生成 .chatfilerc/config.json
 - native 命令（git 等）中文经 `>` 重定向会乱码 → 用 `| Out-File -FilePath x -Encoding utf8`
 - 命令显示"无输出"先怀疑捕获层而非执行失败：用 Test-Path / 读文件交叉确认
 - 运行结束后清理临时脚本与重定向文件（`.ignored.{ps1,txt}`）：有价值的去掉 .ignored. 保留，无价值的删除
-- API Key 优先用环境变量 `OPENAI_API_KEY`，不要写入 `.chatfilerc/config.json`（写入需创建 allow-apikey-in-project 标记文件）
 
 ## 开发环境
 

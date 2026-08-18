@@ -1,6 +1,29 @@
 import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
 
+import { getModelGateway, type Config } from './config'
+import { ChatFile, type ChatRole } from './fileobj'
+
+import {
+    mergeNormalizedUsage,
+    normalizeUsage,
+    type NormalizedUsage,
+} from './common/usage'
+import { defaultSystemPrompt } from './common/prompt'
+import {
+    chatCompletionStream,
+    mergeToolCallChunks,
+} from './api/openai-compatible'
+import { ToolRunner } from './tools/runner'
+import {
+    printExceptionMessage,
+    printFinalStatus,
+    printWarningMessage,
+    ProgressReporter,
+} from './tui'
+import { parseSSEStream } from './utils/sseStream'
+import { estimateTokens } from './utils/estimateTokens'
+
 import type {
     ChatCompletionChunk,
     ChatCompletionResponse,
@@ -9,24 +32,7 @@ import type {
     Usage,
     Message,
     ToolCallChunk,
-} from './types/openaiApi'
-import { mergeNormalizedUsage, normalizeUsage } from './utils/usage'
-import type { NormalizedUsage } from './utils/usage'
-import { getModelGateway, type Config } from './config'
-import { parseSSEStream } from './utils/sseStream'
-import { defaultSystemPrompt } from './utils/prompt'
-import { chatCompletionStream } from './utils/api'
-import { ChatFile } from './fileobj'
-import type { ChatRole } from './fileobj'
-import { ToolRunner } from './tools/runner'
-import { mergeToolCallChunks } from './tools/streamhelper'
-import {
-    printExceptionMessage,
-    printFinalStatus,
-    printWarningMessage,
-    ProgressReporter,
-} from './tui'
-import { estimateTokens } from './utils/estimateTokens'
+} from './types/openai-compatible-api'
 
 function processFinishReason(choice: ChatCompletionChunk['choices'][0]): void {
     switch (choice.finish_reason) {

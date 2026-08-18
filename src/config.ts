@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
 import { join, dirname } from 'path'
 import { printWarningMessage } from './tui'
-import type { Pricing } from './utils/pricing'
+import type { Pricing } from './common/pricing'
 
 export interface ModelConfig extends Partial<Pricing> {
     alias?: string

@@ -1,4 +1,4 @@
-import type { Usage } from '../types/openaiApi'
+import type { Usage } from '../types/openai-compatible-api'
 
 export interface NormalizedUsage {
     input: number

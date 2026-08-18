@@ -1,6 +1,6 @@
 import { getModelGateway, type Config } from './config'
-import type { NormalizedUsage } from './utils/usage'
-import { computeTokenCostCNY } from './utils/pricing'
+import type { NormalizedUsage } from './common/usage'
+import { computeTokenCostCNY } from './common/pricing'
 
 import chalk from 'chalk'
 

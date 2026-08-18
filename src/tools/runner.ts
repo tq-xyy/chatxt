@@ -1,7 +1,11 @@
 import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import type { ToolDefinition, ToolCall, ToolMessage } from '../types/openaiApi'
+import type {
+    ToolDefinition,
+    ToolCall,
+    ToolMessage,
+} from '../types/openai-compatible-api'
 import type {
     ResultMessage,
     ChatCompletionMessage,

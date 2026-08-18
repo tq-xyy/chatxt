@@ -1,5 +1,7 @@
 # Chatfile 架构文档
 
+> 此文档已过时
+
 Chatfile 是一个"对话即文件"的命令行 AI 聊天工具。用户在 `.chat.txt` 纯文本文件中书写对话，运行 `chatfile <file>` 后，AI 的回复（含思维链、工具调用与结果）被原样追加写回同一文件。整个对话历史天然由文件本身承载，无需数据库。
 
 - 语言：TypeScript（ESM，Node.js ≥ 22）

@@ -6,7 +6,7 @@ import type {
 import type {
     ChatCompletionRequest,
     ChatCompletionResponse,
-} from '../types/openaiApi'
+} from '../types/openai-compatible-api'
 
 type ToolFunction = (...args: any[]) => any
 

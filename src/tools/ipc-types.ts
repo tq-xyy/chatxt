@@ -1,4 +1,7 @@
-import type { ToolDefinition, ChatCompletionRequest } from '../types/openaiApi'
+import type {
+    ToolDefinition,
+    ChatCompletionRequest,
+} from '../types/openai-compatible-api'
 
 export interface RegisterMessage {
     type: 'register'

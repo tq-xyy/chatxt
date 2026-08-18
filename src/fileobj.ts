@@ -7,7 +7,7 @@ import type {
     ToolCall,
     ToolCallChunk,
     ToolMessage,
-} from './types/openaiApi'
+} from './types/openai-compatible-api'
 import type { Config } from './config'
 import { printWarningMessage } from './tui'
 
