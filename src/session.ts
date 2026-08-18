@@ -10,8 +10,8 @@ import type {
     Message,
     ToolCallChunk,
 } from './types/openaiApi'
-import { mergeNormalizedUsage, normalizeUsage } from './utils/computeCost'
-import type { NormalizedUsage } from './utils/computeCost'
+import { mergeNormalizedUsage, normalizeUsage } from './utils/usage'
+import type { NormalizedUsage } from './utils/usage'
 import type { Config } from './config'
 import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'

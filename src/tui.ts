@@ -1,4 +1,5 @@
-import type { NormalizedUsage } from './utils/computeCost'
+import type { Config } from './config'
+import type { NormalizedUsage } from './utils/usage'
 import { computeTokenCostCNY } from './utils/pricing'
 
 import chalk from 'chalk'
@@ -28,7 +29,7 @@ export function printExceptionMessage(err: unknown): void {
 export function printFinalStatus(status: {
     usage: NormalizedUsage
     startTime: number
-    config: { model: string }
+    config: Config
     toolCallCount: number
 }): void {
     const { usage, startTime, config, toolCallCount } = status
@@ -63,14 +64,21 @@ export function printFinalStatus(status: {
             )
     )
 
-    // 第三行：时间、预估花费、工具调用次数（如果有）
-    const cost = computeTokenCostCNY(usage, config.model)
+    // 第三行：时间、基本信息、预估花费（如果有）、工具调用次数（如果有）
     let thirdLine =
-        chalk.white('Elapsed time: ') +
-        chalk.green(`${elapsed}s`) +
-        '  ·  ' +
-        chalk.white('Estimated cost: ') +
-        chalk.red(`¥${cost.toFixed(6)}`)
+        chalk.white('Model: ') +
+        config.model +
+        chalk.white(' Elapsed time: ') +
+        chalk.green(`${elapsed}s`)
+
+    const cost = computeTokenCostCNY(usage, config.model)
+    if (!isNaN(cost)) {
+        thirdLine +=
+            '  ·  ' +
+            chalk.white('Estimated cost: ') +
+            chalk.red(`¥${cost.toFixed(6)}`)
+    }
+
     if (toolCallCount > 0) {
         thirdLine +=
             '  ·  ' +
