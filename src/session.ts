@@ -140,11 +140,11 @@ export class ChatSession {
                         content: '',
                     })
 
-                    for await (const chunk of parseSSEStream<ChatCompletionChunk>(
+                    for await (const message of parseSSEStream<ChatCompletionChunk>(
                         resp
                     )) {
                         outputFlag = await this.handleChunk(
-                            chunk,
+                            message.data,
                             outputFlag,
                             toolCallChunks
                         )
@@ -315,7 +315,11 @@ export class ChatSession {
 
         this.reporter.setPrompt('Call Function | Sub Agent Generating...')
 
-        for await (const chunk of parseSSEStream<ChatCompletionChunk>(resp)) {
+        for await (const streamMessage of parseSSEStream<ChatCompletionChunk>(
+            resp
+        )) {
+            const chunk = streamMessage.data
+
             if (chunk.usage) {
                 this.addUsageRecord(chunk.usage)
                 result.usage = chunk.usage
