@@ -148,9 +148,11 @@ export class ChatSession {
                     const toolCallChunks: ToolCallChunk[] = []
                     this.messages.push({
                         role: 'assistant',
+                        content: '',
+
+                        // mark place for compatible
                         reasoning_content: '',
                         reasoning: '',
-                        content: '',
                     })
 
                     for await (const message of parseSSEStream<ChatCompletionChunk>(
@@ -162,6 +164,24 @@ export class ChatSession {
                             toolCallChunks
                         )
                     }
+
+                    // clear reasoning place mark
+                    this.messages
+                        .filter(msg => msg.role === 'assistant')
+                        .forEach(msg => {
+                            if (
+                                typeof msg.reasoning === 'string' &&
+                                msg.reasoning.length === 0
+                            ) {
+                                delete msg.reasoning
+                            }
+                            if (
+                                typeof msg.reasoning_content === 'string' &&
+                                msg.reasoning_content.length === 0
+                            ) {
+                                delete msg.reasoning_content
+                            }
+                        })
                 } catch (err) {
                     retryTimes += 1
                     if (retryTimes <= 3) {
