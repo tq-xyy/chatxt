@@ -1,5 +1,5 @@
 // Refer to https://www.ruanyifeng.com/blog/2017/05/server-sent_events.html
-interface SSEMessage<T, E extends string> {
+export interface SSEMessage<T, E extends string = string> {
     id?: string
     retry?: string
     event?: E
@@ -51,6 +51,7 @@ export async function* parseSSEStream<T, E extends string = string>(
             }
 
             if (rawData === '[DONE]') continue
+            if (rawData === '') continue
 
             try {
                 const data = JSON.parse(rawData) as T

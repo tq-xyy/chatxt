@@ -28,17 +28,16 @@ export interface Config {
     excludeHistoryToolCall?: boolean
 }
 
-export function getModelGateway(
-    config: Config,
-    model: string
-): {
+export interface ModelGateway {
     providerName: string
     endpoint: string
     endpointType: Provider['type']
     model: string
     apikey: string
     pricing?: Pricing
-} {
+}
+
+export function getModelGateway(config: Config, model: string): ModelGateway {
     if (config.endpoint && config.apikey) {
         return {
             providerName: config.endpoint,

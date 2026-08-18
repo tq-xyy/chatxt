@@ -1,8 +1,9 @@
+import chalk from 'chalk'
+
 import { getModelGateway, type Config } from './config'
 import type { NormalizedUsage } from './common/usage'
 import { computeTokenCostCNY } from './common/pricing'
-
-import chalk from 'chalk'
+import { estimateTokens } from './utils/estimateTokens'
 
 export function printWarningMessage(warn: string): void {
     console.warn(chalk.yellow.bold('! Warning ') + chalk.yellow(warn))
@@ -120,7 +121,12 @@ export class ProgressReporter {
      * 更新进度，增加 token 数量并在满足条件时刷新显示
      * @param delta 本次新增的 token 数量
      */
-    public update(delta: number): void {
+    public update(delta: number): void
+    public update(delta: string): void
+    public update(delta: number | string): void {
+        if (typeof delta === 'string') {
+            delta = estimateTokens(delta)
+        }
         this.totalTokens += delta
         if (!this.startTime) {
             this.startTime = Date.now()

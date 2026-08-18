@@ -2,7 +2,7 @@ import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
 
 import { getModelGateway, type Config } from './config'
-import { ChatFile, type ChatRole } from './fileobj'
+import { ChatFile } from './fileobj'
 
 import {
     mergeNormalizedUsage,
@@ -10,10 +10,7 @@ import {
     type NormalizedUsage,
 } from './common/usage'
 import { defaultSystemPrompt } from './common/prompt'
-import {
-    chatCompletionStream,
-    mergeToolCallChunks,
-} from './api/openai-compatible'
+import { chatCompletionStream } from './api/openai-compatible'
 import { ToolRunner } from './tools/runner'
 import {
     printExceptionMessage,
@@ -28,14 +25,13 @@ import type {
     ChatCompletionChunk,
     ChatCompletionResponse,
     ChatCompletionRequest,
-    ToolCall,
     Usage,
-    Message,
-    ToolCallChunk,
 } from './types/openai-compatible-api'
+import type { APIAdapter, StreamEvent } from './types/api-adapter'
+import { OpenAICompatibleAPIAdapter } from './controllers/openai-compatible'
 
-function processFinishReason(choice: ChatCompletionChunk['choices'][0]): void {
-    switch (choice.finish_reason) {
+function processFinishReason(finishReason: string): void {
+    switch (finishReason) {
         case 'stop':
         case 'length':
             break
@@ -51,9 +47,7 @@ function processFinishReason(choice: ChatCompletionChunk['choices'][0]): void {
             )
             break
         default:
-            throw new TypeError(
-                `unkonwn finish reason: ${choice.finish_reason}`
-            )
+            throw new TypeError(`unkonwn finish reason: ${finishReason}`)
     }
 }
 
@@ -61,12 +55,13 @@ export class ChatSession {
     private config: Config
     private file: ChatFile
     private toolRunner: ToolRunner
-    private messages: Message[] = []
     private sumUsage: NormalizedUsage
     private sumToolCall = 0
-    private chatTurn = 0
     private startTime: number
     private reporter: ProgressReporter
+
+    private api: APIAdapter
+    private stop: boolean = false
 
     constructor(
         private chatFilePath: string,
@@ -79,6 +74,8 @@ export class ChatSession {
         this.toolRunner = new ToolRunner(this)
 
         this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
+
+        this.api = new OpenAICompatibleAPIAdapter()
     }
 
     async loop(): Promise<void> {
@@ -99,9 +96,9 @@ export class ChatSession {
         }
 
         try {
-            const apiGateway = getModelGateway(this.config, this.config.model)
+            const gateway = getModelGateway(this.config, this.config.model)
 
-            if (apiGateway.endpointType !== 'openai-compatible') {
+            if (gateway.endpointType !== 'openai-compatible') {
                 throw new Error(
                     'The support of OpenAI Responses API and Anthropic API will come soon~'
                 )
@@ -109,12 +106,10 @@ export class ChatSession {
 
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
-            this.messages = system ? [system, ...messages] : messages
-            this.chatTurn = messages.filter(msg => msg.role === 'user').length
 
             if (
-                this.messages.at(-1)?.role !== 'user' ||
-                (this.messages.at(-1)?.content?.trimEnd().length || 0) < 1
+                messages.at(-1)?.role !== 'user' ||
+                (messages.at(-1)?.content?.trimEnd().length || 0) < 1
             ) {
                 printWarningMessage('No user input.')
                 this.reporter.close()
@@ -125,63 +120,29 @@ export class ChatSession {
 
             this.reporter.update(0)
 
-            let outputFlag: ChatRole | boolean = 'UNKNOWN'
+            this.api.whenParsedChat(
+                { messages, system },
+                this.toolRunner.getDefinitions()
+            )
+
             let retryTimes: number = 0
 
-            while (outputFlag !== false) {
+            while (true) {
                 this.reporter.setPrompt('Requesting...')
                 try {
-                    const resp = await chatCompletionStream(
-                        {
-                            model: apiGateway.model,
-                            /* leave it default */
-                            // thinking: { type: 'enabled' },
-                            reasoning_effort: this.config
-                                .thinkingEffort as ChatCompletionRequest['reasoning_effort'],
-                            messages: this.messages,
-                            stream_options: { include_usage: true },
-                            tools: this.toolRunner.getDefinitions(),
-                        },
-                        apiGateway
+                    const resp = await this.api.whenReadyToRequest(
+                        this.config,
+                        gateway
                     )
 
-                    const toolCallChunks: ToolCallChunk[] = []
-                    this.messages.push({
-                        role: 'assistant',
-                        content: '',
-
-                        // mark place for compatible
-                        reasoning_content: '',
-                        reasoning: '',
-                    })
-
-                    for await (const message of parseSSEStream<ChatCompletionChunk>(
-                        resp
-                    )) {
-                        outputFlag = await this.handleChunk(
-                            message.data,
-                            outputFlag,
-                            toolCallChunks
+                    for await (const message of parseSSEStream(resp)) {
+                        this.api.whenRecvivedChunk(
+                            message,
+                            this.onEmit.bind(this)
                         )
                     }
 
-                    // clear reasoning place mark
-                    this.messages
-                        .filter(msg => msg.role === 'assistant')
-                        .forEach(msg => {
-                            if (
-                                typeof msg.reasoning === 'string' &&
-                                msg.reasoning.length === 0
-                            ) {
-                                delete msg.reasoning
-                            }
-                            if (
-                                typeof msg.reasoning_content === 'string' &&
-                                msg.reasoning_content.length === 0
-                            ) {
-                                delete msg.reasoning_content
-                            }
-                        })
+                    break
                 } catch (err) {
                     retryTimes += 1
                     if (retryTimes <= 3) {
@@ -193,123 +154,104 @@ export class ChatSession {
                     }
                 }
             }
-
-            this.file.appendRoleLine('USER')
-            await this.file.flushBuffer()
-
-            this.reporter.close()
-
-            printFinalStatus({
-                startTime: this.startTime,
-                usage: this.sumUsage,
-                toolCallCount: this.sumToolCall,
-                config: this.config,
-            })
-            console.log()
+            this.checkFinish()
         } catch (err) {
             this.reporter.close()
             printExceptionMessage(err)
-        } finally {
-            this.toolRunner.close()
         }
     }
 
-    private async handleChunk(
-        chunk: ChatCompletionChunk,
-        outputFlag: ChatRole | boolean,
-        toolCallChunks: ToolCallChunk[]
-    ): Promise<ChatRole | boolean> {
-        if (chunk.usage) {
-            this.addUsageRecord(chunk.usage)
-        }
+    private async onEmit(msg: StreamEvent): Promise<void> {
+        switch (msg.type) {
+            case 'reasoning-start':
+                this.file.appendThinkingText('', true)
+                this.reporter.setPrompt('Thinking...')
+                break
+            case 'reasoning-delta':
+                this.file.appendThinkingText(msg.delta, false)
+                this.reporter.update(msg.delta)
+                break
+            case 'reasoning-end':
+                break
 
-        if (chunk.choices.length === 0) {
-            // discard empty chunk
-            return outputFlag
-        }
+            case 'content-start':
+                this.file.appendRoleLine('ASSISTANT')
+                this.reporter.setPrompt('Generating Answer...')
+                break
+            case 'content-delta':
+                this.file.appendContent(msg.delta)
+                this.reporter.update(msg.delta)
+                break
+            case 'content-end':
+                break
 
-        const choice = chunk.choices[0]
+            case 'function-call-start':
+                this.file.appendRoleLine('TOOL')
+                this.reporter.setPrompt('Generating Function Call...')
+                break
+            case 'function-call-delta':
+                this.file.appendToolCallChunkToToolBlock(msg.toolCallChunk)
+                this.reporter.update(
+                    estimateTokens(msg.toolCallChunk.function.arguments)
+                )
+                break
+            case 'function-call-end': {
+                this.sumToolCall += msg.toolCalls.length
 
-        const content: string | null | undefined = choice.delta?.content
-        const reasoning: string | null | undefined =
-            choice.delta?.reasoning_content || // deepseek, kimi
-            choice.delta?.reasoning // others
-        const toolCallDelta: ToolCallChunk[] | null | undefined =
-            choice.delta?.tool_calls
+                this.reporter.setPrompt('Call Function...')
 
-        if (reasoning && outputFlag !== 'THINKING') {
-            this.file.appendThinkingText('', true)
-            this.reporter.setPrompt('Thinking...')
-            outputFlag = 'THINKING'
-        }
-        if (reasoning) {
-            this.file.appendThinkingText(reasoning, false)
+                const toolResponses = await this.toolRunner.executeAll(
+                    msg.toolCalls
+                )
 
-            const lastMessage = this.messages.at(-1)
-            if (lastMessage?.role === 'assistant') {
-                if (choice.delta?.reasoning_content) {
-                    lastMessage.reasoning_content += reasoning
-                } else {
-                    lastMessage.reasoning += reasoning
+                this.file.appendToolMessagesToToolResponseBlock(toolResponses)
+
+                this.reporter.setPrompt('Requesting...')
+
+                const resp = await this.api.whenReadyToRequest(
+                    this.config,
+                    getModelGateway(this.config, this.config.model),
+                    toolResponses
+                )
+
+                for await (const message of parseSSEStream(resp)) {
+                    this.api.whenRecvivedChunk(message, this.onEmit.bind(this))
                 }
+
+                await this.checkFinish()
+                break
             }
 
-            this.reporter.update(estimateTokens(reasoning))
-        }
-
-        if (content && outputFlag !== 'ASSISTANT') {
-            this.file.appendRoleLine('ASSISTANT')
-            outputFlag = 'ASSISTANT'
-            this.reporter.setPrompt('Generating Answer...')
-        }
-        if (content) {
-            this.file.appendContent(content)
-            this.messages.at(-1)!.content += content
-            this.reporter.update(estimateTokens(content))
-        }
-
-        if (toolCallDelta && outputFlag !== 'TOOL') {
-            this.file.appendRoleLine('TOOL')
-            outputFlag = 'TOOL'
-            this.reporter.setPrompt('Generating Function Call...')
-        }
-        if (toolCallDelta) {
-            for (const tc of toolCallDelta) {
-                this.file.appendToolCallChunkToToolBlock(tc)
-                this.reporter.update(estimateTokens(tc.function.arguments))
-                toolCallChunks.push(tc)
+            case 'finish': {
+                if (msg.finishReason) {
+                    processFinishReason(msg.finishReason)
+                    this.stop = true
+                }
+                if (msg.usage) {
+                    this.addUsageRecord(msg.usage)
+                }
+                break
             }
         }
-
-        if (choice.finish_reason === 'tool_calls') {
-            // discard duplicate tool calls
-            if (this.messages.at(-1)?.role !== 'tool') {
-                const calls = mergeToolCallChunks(toolCallChunks)
-                await this.handleToolCalls(calls)
-                outputFlag = 'UNKNOWN'
-            }
-        } else if (choice.finish_reason) {
-            processFinishReason(choice)
-            outputFlag = false
-        }
-
-        return outputFlag
     }
 
-    private async handleToolCalls(toolCalls: ToolCall[]) {
-        const lastMessage = this.messages.at(-1)
-        if (lastMessage?.role === 'assistant') {
-            lastMessage.tool_calls = toolCalls
+    async checkFinish() {
+        if (!this.stop) {
+            return
         }
-        this.sumToolCall += toolCalls.length
+        this.file.appendRoleLine('USER')
+        await this.file.flushBuffer()
 
-        this.reporter.setPrompt('Call Function...')
-        this.reporter.update(0)
+        this.reporter.close()
 
-        const msgs = await this.toolRunner.executeAll(toolCalls)
+        printFinalStatus({
+            startTime: this.startTime,
+            usage: this.sumUsage,
+            toolCallCount: this.sumToolCall,
+            config: this.config,
+        })
 
-        this.messages.push(...msgs)
-        this.file.appendToolMessagesToToolResponseBlock(msgs)
+        this.toolRunner.close()
     }
 
     async subAgentChatCompletion(
@@ -398,7 +340,7 @@ export class ChatSession {
         return result
     }
 
-    private addUsageRecord(usage: Usage) {
+    private addUsageRecord(usage: Usage | NormalizedUsage) {
         this.reporter.clear()
         this.sumUsage = mergeNormalizedUsage(
             this.sumUsage,
