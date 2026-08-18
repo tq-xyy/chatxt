@@ -1,14 +1,88 @@
 import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
 import { join, dirname } from 'path'
 import { printWarningMessage } from './tui'
+import type { Pricing } from './utils/pricing'
+
+export interface ModelConfig extends Partial<Pricing> {
+    alias?: string
+}
+
+export interface Provider {
+    name?: string
+    type: 'openai-compatible' | 'openai-responses' | 'anthropic'
+    endpoint: string
+    apikey: string
+    models: Record<string, true | ModelConfig>
+}
 
 export interface Config {
-    endpoint: string
+    providers: Provider[]
+    defaultModel?: string
+
+    endpoint?: string
     model: string
-    apiKey: string
-    thinkingEffort: string
-    showThinking: boolean
-    excludeHistoryToolCall: boolean
+    apikey?: string
+
+    thinkingEffort?: string
+    showThinking?: boolean
+    excludeHistoryToolCall?: boolean
+}
+
+export function getModelGateway(
+    config: Config,
+    model: string
+): {
+    providerName: string
+    endpoint: string
+    endpointType: Provider['type']
+    model: string
+    apikey: string
+    pricing?: Pricing
+} {
+    if (config.endpoint && config.apikey) {
+        return {
+            providerName: config.endpoint,
+            endpoint: config.endpoint,
+            apikey: config.apikey,
+            model,
+            endpointType: 'openai-compatible',
+        }
+    }
+
+    for (const provider of config.providers) {
+        for (const modelId in provider.models) {
+            const modelConf: ModelConfig =
+                provider.models[modelId] === true
+                    ? { alias: modelId }
+                    : provider.models[modelId]
+
+            if (modelConf.alias !== model) {
+                continue
+            }
+
+            const gateway: ReturnType<typeof getModelGateway> = {
+                providerName: provider.name || provider.endpoint,
+                endpoint: provider.endpoint,
+                apikey: provider.apikey,
+                endpointType: provider.type,
+                model: modelId,
+            }
+
+            if (modelConf.pricingPerMillionTokens) {
+                gateway.pricing = {
+                    pricingPerMillionTokens: modelConf.pricingPerMillionTokens,
+                    pricingCurrency: modelConf.pricingCurrency || 'CNY',
+                }
+            }
+
+            return gateway
+        }
+    }
+
+    throw new Error(
+        'Cannot find a vaild model provider to start chat.' +
+            'Check you if set endpoint and api key in provider.'
+    )
 }
 
 /**
@@ -29,83 +103,66 @@ async function findProjectRoot(startDir: string): Promise<string | null> {
     }
 }
 
-const configTemplate: Config = {
-    endpoint: 'https://api.deepseek.com',
-    model: 'deepseek-v4-flash',
-    apiKey: '',
-    thinkingEffort: 'high',
-    showThinking: false,
-    excludeHistoryToolCall: false,
-}
-
-/**
- * 异步加载配置，返回 Promise<Config>
- * 优先级: 运行时配置 > 配置文件 > 默认配置
- */
 export async function loadConfig(
-    runtimeConfig?: Partial<Config>
+    cliConfig?: Partial<Config>
 ): Promise<Config> {
-    const envApiKey = process.env.OPENAI_API_KEY || ''
-    const defaultConfig: Config = {
-        ...configTemplate,
-        apiKey: envApiKey,
-    }
-
     const cwd = process.cwd()
     const projectRoot = await findProjectRoot(cwd)
-    if (!projectRoot) {
-        return defaultConfig
-    }
 
-    const configPath = join(projectRoot, '.chatfilerc', 'config.json')
     let fileConfig: Partial<Config> = {}
 
-    try {
-        // 检查文件是否存在，若存在则读取并解析
-        await access(configPath, constants.F_OK)
-        const raw = await readFile(configPath, 'utf-8')
-        fileConfig = JSON.parse(raw) as Partial<Config>
-    } catch {
-        // 文件不存在或读取失败，使用默认值
+    if (projectRoot) {
+        const configPath = join(projectRoot, '.chatfilerc', 'config.json')
+        try {
+            await access(configPath, constants.F_OK)
+            const raw = await readFile(configPath, 'utf-8')
+            fileConfig = JSON.parse(raw) as Partial<Config>
+        } catch {
+            // Use cli settings
+        }
     }
 
-    runtimeConfig = runtimeConfig || {}
+    // exclude undefined items from cli settings
+    cliConfig = cliConfig || {}
+    cliConfig = Object.fromEntries(
+        Object.entries(cliConfig).filter(([k, v]) => k && v)
+    )
+
+    const model = cliConfig.model || fileConfig.defaultModel
+    if (!model) {
+        throw new Error(
+            'Cannot find model id to generate, you can set by ' +
+                '`-m` or `--model` in CLI or use defaultModel in config file.'
+        )
+    }
 
     const merged: Config = {
-        ...defaultConfig,
+        providers: [],
         ...fileConfig,
-        ...runtimeConfig,
-    }
-
-    // apiKey 优先级：环境变量 > 配置文件
-    merged.apiKey = envApiKey || fileConfig.apiKey || ''
-
-    // 安全警告：当配置文件包含 apiKey 且未设置环境变量时
-    if (fileConfig.apiKey && fileConfig.apiKey.length > 0 && !envApiKey) {
-        const allowFile = join(
-            projectRoot,
-            '.chatfilerc',
-            'allow-apikey-in-project'
-        )
-        try {
-            await access(allowFile, constants.F_OK)
-            // 标记文件存在，不发出警告
-        } catch {
-            printWarningMessage(
-                'Warning: API key found in .chatfilerc/config.json. ' +
-                    'It is recommended to use OPENAI_API_KEY environment variable instead. ' +
-                    'To suppress this warning, create .chatfilerc/allow-apikey-in-project marker file.'
-            )
-        }
+        ...cliConfig,
+        model,
     }
 
     return merged
 }
 
-/**
- * 异步初始化配置文件，返回 Promise<void>
- */
 export async function initConfig(): Promise<void> {
+    const configTemplate: Partial<Config> = {
+        providers: [
+            {
+                name: 'DeepSeek',
+                type: 'openai-compatible',
+                endpoint: 'https://api.deepseek.com/v1',
+                apikey: 'your-api-key-here',
+                models: {
+                    'deepseek-v4-flash': true,
+                    'deepseek-v4-pro': true,
+                },
+            },
+        ],
+        defaultModel: 'deepseek-v4-flash',
+    }
+
     const cwd = process.cwd()
     const configDir = join(cwd, '.chatfilerc')
     const configPath = join(configDir, 'config.json')
@@ -117,14 +174,11 @@ export async function initConfig(): Promise<void> {
         // 忽略目录已存在或其他错误，后续会尝试写入文件
     }
 
-    // 检查配置文件是否已存在
     try {
         await access(configPath, constants.F_OK)
         printWarningMessage('.chatfilerc/config.json already exists.')
         return
-    } catch {
-        // 文件不存在，继续创建
-    }
+    } catch {}
 
     await writeFile(configPath, JSON.stringify(configTemplate, null, 2) + '\n')
     console.log(`Created config template at ${configPath}`)

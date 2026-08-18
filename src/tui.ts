@@ -1,4 +1,4 @@
-import type { Config } from './config'
+import { getModelGateway, type Config } from './config'
 import type { NormalizedUsage } from './utils/usage'
 import { computeTokenCostCNY } from './utils/pricing'
 
@@ -37,8 +37,16 @@ export function printFinalStatus(status: {
 
     const fn = (n: number) => n.toLocaleString('en-US')
 
-    // 第一行：生成完成提示
-    console.log(chalk.green('✔ Generation completed.'))
+    // 第一行：生成完成提示、基本信息
+    const gateway = getModelGateway(config, config.model)
+
+    console.log(
+        chalk.green('✔ Generation completed.') +
+            chalk.white('  ·  Model: ') +
+            chalk.magenta(config.model) +
+            chalk.white('  ·  Provider: ') +
+            chalk.magenta(gateway.providerName)
+    )
 
     // 第二行：Token 总计与分类
     const cachedPart = usage.cached
@@ -64,14 +72,12 @@ export function printFinalStatus(status: {
             )
     )
 
-    // 第三行：时间、基本信息、预估花费（如果有）、工具调用次数（如果有）
-    let thirdLine =
-        chalk.white('Model: ') +
-        config.model +
-        chalk.white(' Elapsed time: ') +
-        chalk.green(`${elapsed}s`)
+    // 第三行：时间、预估花费（如果有）、工具调用次数（如果有）
 
-    const cost = computeTokenCostCNY(usage, config.model)
+    let thirdLine = chalk.white('Elapsed time: ') + chalk.green(`${elapsed}s`)
+
+    const cost = computeTokenCostCNY(usage, gateway.pricing || config.model)
+
     if (!isNaN(cost)) {
         thirdLine +=
             '  ·  ' +

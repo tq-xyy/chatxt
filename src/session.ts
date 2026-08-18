@@ -12,7 +12,7 @@ import type {
 } from './types/openaiApi'
 import { mergeNormalizedUsage, normalizeUsage } from './utils/usage'
 import type { NormalizedUsage } from './utils/usage'
-import type { Config } from './config'
+import { getModelGateway, type Config } from './config'
 import { parseSSEStream } from './utils/sseStream'
 import { defaultSystemPrompt } from './utils/prompt'
 import { chatCompletionStream } from './utils/api'
@@ -93,6 +93,8 @@ export class ChatSession {
         }
 
         try {
+            const apiGateway = getModelGateway(this.config, this.config.model)
+
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
             this.messages = system ? [system, ...messages] : messages
@@ -119,7 +121,7 @@ export class ChatSession {
                 try {
                     const resp = await chatCompletionStream(
                         {
-                            model: this.config.model,
+                            model: apiGateway.model,
                             /* leave it default */
                             // thinking: { type: 'enabled' },
                             reasoning_effort: this.config
@@ -128,7 +130,7 @@ export class ChatSession {
                             stream_options: { include_usage: true },
                             tools: this.toolRunner.getDefinitions(),
                         },
-                        this.config
+                        apiGateway
                     )
 
                     const toolCallChunks: ToolCallChunk[] = []
@@ -286,12 +288,14 @@ export class ChatSession {
             request.model = this.config.model
         }
 
+        const apiGateway = getModelGateway(this.config, request.model)
+
         const resp = await chatCompletionStream(
             {
                 ...request,
                 stream_options: { include_usage: true },
             },
-            this.config
+            apiGateway
         )
 
         const result: ChatCompletionResponse = {

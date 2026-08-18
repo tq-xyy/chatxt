@@ -12,6 +12,7 @@ program
     .version(version)
     .argument('<file>', '.chat.txt file to process, create if not available.')
     .option('-m, --model <model>', 'model to be used to generate')
+    .option('-k, --api-key <model>', 'api key from your model provider')
     .option('--endpoint <model>', 'the endpoint of model provider')
     .option(
         '-t, --show-thinking',
@@ -21,11 +22,34 @@ program
         '--exclude-history-tool-call',
         'remove history tool call from context to save tokens'
     )
-    .action(async (file, options) => {
-        const config = await loadConfig(options)
-        const session = new ChatSession(file, config)
-        await session.loop()
-    })
+    .action(
+        async (
+            file,
+            {
+                model,
+                apiKey: apikey,
+                endpoint,
+                showThinking,
+                excludeHistoryToolCall,
+            }: {
+                model?: string
+                apiKey?: string
+                endpoint?: string
+                showThinking: boolean
+                excludeHistoryToolCall: boolean
+            }
+        ) => {
+            const config = await loadConfig({
+                model,
+                apikey,
+                endpoint,
+                showThinking,
+                excludeHistoryToolCall,
+            })
+            const session = new ChatSession(file, config)
+            await session.loop()
+        }
+    )
 
 program
     .command('init-config')

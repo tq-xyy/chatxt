@@ -6,7 +6,7 @@ import type {
 /** 连接 OpenAI 兼容 API 所需的连接信息 */
 type ChatCompletionAPI = {
     endpoint: string
-    apiKey: string
+    apikey: string
 }
 
 /**
@@ -21,7 +21,7 @@ async function requestChatCompletion(
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${api.apiKey}`,
+            Authorization: `Bearer ${api.apikey}`,
         },
         body: JSON.stringify(request),
     })
@@ -33,9 +33,12 @@ async function requestChatCompletion(
             errorText = errorJSON.error.message || errorText
         } catch {}
 
-        throw new Error(
-            `API Request Failed (${resp.status} ${resp.statusText}), error message: ${errorText}`
-        )
+        const statusText =
+            resp.statusText.length > 0
+                ? `${resp.status} ${resp.statusText}`
+                : `${resp.status}`
+
+        throw new Error(`API Request Failed (${statusText}), error message: ${errorText}`)
     }
 
     return resp

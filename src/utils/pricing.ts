@@ -127,6 +127,10 @@ export function computeTokenCostCNY(
 export function computeTokenCostCNY(
     tokenUsage: NormalizedUsage,
     pricing: string | Pricing
+): number
+export function computeTokenCostCNY(
+    tokenUsage: NormalizedUsage,
+    pricing: string | Pricing
 ): number {
     const { input, output, cached } = tokenUsage
     const cachedInput = cached ?? 0
@@ -139,6 +143,10 @@ export function computeTokenCostCNY(
             : pricing
 
         pricing = estimatedModelPricing[resolvedModel]
+    }
+
+    if (!pricing) {
+        return NaN
     }
 
     const p = pricing.pricingPerMillionTokens
