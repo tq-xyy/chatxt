@@ -95,6 +95,12 @@ export class ChatSession {
         try {
             const apiGateway = getModelGateway(this.config, this.config.model)
 
+            if (apiGateway.endpointType !== 'openai-compatible') {
+                throw new Error(
+                    'The support of OpenAI Responses API and Anthropic API will come soon~'
+                )
+            }
+
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
             this.messages = system ? [system, ...messages] : messages
@@ -137,6 +143,7 @@ export class ChatSession {
                     this.messages.push({
                         role: 'assistant',
                         reasoning_content: '',
+                        reasoning: '',
                         content: '',
                     })
 
@@ -211,8 +218,13 @@ export class ChatSession {
         }
         if (reasoning) {
             this.file.appendThinkingText(reasoning, false)
-            // @ts-expect-error
-            this.messages.at(-1)!.reasoning_content += reasoning
+            if (choice.delta?.reasoning_content) {
+                // @ts-expect-error
+                this.messages.at(-1)!.reasoning_content += reasoning
+            } else {
+                // @ts-expect-error
+                this.messages.at(-1)!.reasoning += reasoning
+            }
             this.reporter.update(estimateTokens(reasoning))
         }
 
@@ -333,12 +345,19 @@ export class ChatSession {
                 message.reasoning_content =
                     (message.reasoning_content ?? '') +
                     choice.delta.reasoning_content
-                this.reporter.update(1)
+                this.reporter.update(
+                    estimateTokens(choice.delta?.reasoning_content)
+                )
+            }
+            if (choice.delta?.reasoning) {
+                message.reasoning =
+                    (message.reasoning ?? '') + choice.delta.reasoning
+                this.reporter.update(estimateTokens(choice.delta?.reasoning))
             }
             if (choice.delta?.content) {
                 message.content =
                     (message.content ?? '') + choice.delta.content
-                this.reporter.update(1)
+                this.reporter.update(estimateTokens(choice.delta.content))
             }
             if (choice.finish_reason) {
                 result.choices[0].finish_reason = choice.finish_reason
