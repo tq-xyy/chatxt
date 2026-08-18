@@ -224,13 +224,16 @@ export class ChatSession {
         }
         if (reasoning) {
             this.file.appendThinkingText(reasoning, false)
-            if (choice.delta?.reasoning_content) {
-                // @ts-expect-error
-                this.messages.at(-1)!.reasoning_content += reasoning
-            } else {
-                // @ts-expect-error
-                this.messages.at(-1)!.reasoning += reasoning
+
+            const lastMessage = this.messages.at(-1)
+            if (lastMessage?.role === 'assistant') {
+                if (choice.delta?.reasoning_content) {
+                    lastMessage.reasoning_content += reasoning
+                } else {
+                    lastMessage.reasoning += reasoning
+                }
             }
+
             this.reporter.update(estimateTokens(reasoning))
         }
 
@@ -274,8 +277,10 @@ export class ChatSession {
     }
 
     private async handleToolCalls(toolCalls: ToolCall[]) {
-        // @ts-expect-error
-        this.messages.at(-1)!.tool_calls = toolCalls
+        const lastMessage = this.messages.at(-1)
+        if (lastMessage?.role === 'assistant') {
+            lastMessage.tool_calls = toolCalls
+        }
         this.sumToolCall += toolCalls.length
 
         this.reporter.setPrompt('Call Function...')

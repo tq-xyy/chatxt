@@ -48,7 +48,7 @@ async function chatCompletion(request: {
 ```javascript
 async function summarize({ text }) {
     const resp = await chatCompletion({
-        messages: [{ role: 'user', content: `总结：${text}` }]
+        messages: [{ role: 'user', content: `总结：${text}` }],
     })
     return { summary: resp.choices[0].message.content }
 }

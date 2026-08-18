@@ -6,7 +6,7 @@ interface SSEMessage<T, E extends string> {
     data: T
 }
 
-export async function* parseSSEStream<T, E extends string = any>(
+export async function* parseSSEStream<T, E extends string = string>(
     resp: Response
 ) {
     const decoder = new TextDecoder()
@@ -62,7 +62,9 @@ export async function* parseSSEStream<T, E extends string = any>(
 
                 yield chunk
             } catch (err) {
-                throw new Error('chunk parse as JSON failed: ' + rawData)
+                throw new Error(`chunk parse as JSON failed: ${rawData}`, {
+                    cause: err,
+                })
             }
         }
 

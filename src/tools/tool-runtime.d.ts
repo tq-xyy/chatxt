@@ -8,6 +8,7 @@ export {}
 declare global {
     function serveAsTool(
         ...entries: (
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             [(...args: any[]) => any, string, any] | null | undefined | false
         )[]
     ): void
@@ -20,7 +21,7 @@ declare global {
         argsDefs: [
             string,
             string,
-            { new (...args: any[]): any },
+            NumberConstructor | StringConstructor | BooleanConstructor,
             { optional?: boolean }?,
         ][]
     ): {

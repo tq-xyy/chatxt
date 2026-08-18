@@ -1,6 +1,6 @@
 {
     "name": "chatfile",
-    "version": "0.4.0",
+    "version": "0.5.1",
     "type": "module",
     "description": "Chatfile - AI conversations recorded as .chat.md files",
     "bin": {
@@ -9,7 +9,7 @@
     "scripts": {
         "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli.js",
         "typecheck": "tsc --noEmit",
-        "lint": "prettier -w src package.json tsconfig.json examples"
+        "lint": "eslint --fix . && prettier -w ."
     },
     "keywords": [],
     "author": "",
@@ -19,10 +19,14 @@
         "commander": "^15.0.0"
     },
     "devDependencies": {
+        "@eslint/js": "^10.0.1",
         "@types/node": "^26.2.0",
         "esbuild": "^0.28.2",
+        "eslint": "^10.8.1",
         "prettier": "^3.9.6",
         "tsx": "^4.23.12",
-        "typescript": "^6.0.3"
+        "typescript": "^6.0.3",
+        "eslint-config-prettier": "^10.1.8",
+        "typescript-eslint": "^8.67.0"
     }
 }

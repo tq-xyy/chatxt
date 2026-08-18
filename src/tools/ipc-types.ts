@@ -12,13 +12,13 @@ export interface ExecuteMessage {
     type: 'execute'
     id: string
     toolName: string
-    args: any
+    args: unknown
 }
 
 export interface ResultMessage {
     type: 'result'
     id: string
-    result?: any
+    result?: unknown
     error?: string
 }
 
@@ -31,7 +31,7 @@ export interface ChatCompletionMessage {
 export interface ChatCompletionResultMessage {
     type: 'chatCompletionResult'
     id: string
-    result?: any
+    result?: unknown
     error?: string
 }
 
@@ -44,6 +44,11 @@ export interface ExitMessage {
     type: 'exit'
 }
 
+export interface ErrorMessage {
+    type: 'error'
+    message: string
+}
+
 export type IPCMessage =
     | RegisterMessage
     | ExecuteMessage
@@ -52,3 +57,4 @@ export type IPCMessage =
     | ChatCompletionResultMessage
     | WarningMessage
     | ExitMessage
+    | ErrorMessage

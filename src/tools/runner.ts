@@ -6,11 +6,7 @@ import type {
     ToolCall,
     ToolMessage,
 } from '../types/openai-compatible-api'
-import type {
-    ResultMessage,
-    ChatCompletionMessage,
-    WarningMessage,
-} from './ipc-types'
+import type { ChatCompletionMessage, IPCMessage } from './ipc-types'
 import type { ChatSession } from '../session'
 import { printWarningMessage, printExceptionMessage } from '../tui'
 
@@ -22,7 +18,7 @@ export class ToolRunner {
     >()
     private pendingRequests = new Map<
         string,
-        { resolve: (value: any) => void; reject: (err: Error) => void }
+        { resolve: (value: unknown) => void; reject: (err: Error) => void }
     >()
     private childRequests = new Map<ChildProcess, Set<string>>()
     private requestIdCounter = 0
@@ -50,7 +46,7 @@ export class ToolRunner {
 
         const tools = await new Promise<ToolDefinition[]>(
             (resolve, reject) => {
-                const onMessage = (msg: any) => {
+                const onMessage = (msg: IPCMessage) => {
                     if (msg.type === 'register') {
                         resolve(msg.tools)
                         child.removeListener('message', onMessage)
@@ -87,11 +83,13 @@ export class ToolRunner {
             }
         }
 
-        child.on('message', (msg: any) => this.handleMessage(msg, child))
+        child.on('message', (msg: IPCMessage) =>
+            this.handleMessage(msg, child)
+        )
         child.on('error', err => {
             printExceptionMessage(err)
         })
-        child.on('exit', (code, signal) => {
+        child.on('exit', () => {
             for (const [name, entry] of this.toolDefinitions) {
                 if (entry.filePath === absPath)
                     this.toolDefinitions.delete(name)
@@ -191,10 +189,7 @@ export class ToolRunner {
         }
     }
 
-    private handleMessage(
-        msg: ResultMessage | ChatCompletionMessage | WarningMessage,
-        child: ChildProcess
-    ) {
+    private handleMessage(msg: IPCMessage, child: ChildProcess) {
         if (msg.type === 'result') {
             const pending = this.pendingRequests.get(msg.id)
             if (pending) {
@@ -222,11 +217,11 @@ export class ToolRunner {
         try {
             const result = await this.session.subAgentChatCompletion(request)
             child.send({ type: 'chatCompletionResult', id, result })
-        } catch (err: any) {
+        } catch (err) {
             child.send({
                 type: 'chatCompletionResult',
                 id,
-                error: err.message,
+                error: (err as { message: string }).message,
             })
         }
     }

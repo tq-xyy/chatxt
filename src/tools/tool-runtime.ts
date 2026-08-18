@@ -8,36 +8,35 @@ import type {
     ChatCompletionResponse,
 } from '../types/openai-compatible-api'
 
-type ToolFunction = (...args: any[]) => any
+type ToolFunction = (...args: unknown[]) => unknown
 
 interface RegisteredTool {
     name: string
     description: string
-    parameters: Record<string, any>
+    parameters: Record<string, unknown>
     func: ToolFunction
 }
 
 const toolMap = new Map<string, RegisteredTool>()
-const toolDefs: {
-    name: string
-    description: string
-    parameters: Record<string, any>
-}[] = []
+const toolDefs: Omit<RegisteredTool, 'func'>[] = []
 let nextChatId = 0
 const pendingChats = new Map<
     string,
-    { resolve: (value: any) => void; reject: (err: Error) => void }
+    { resolve: (value: unknown) => void; reject: (err: Error) => void }
 >()
 
 function serveAsTool(
     ...entries: (
-        [ToolFunction, string, Record<string, any>] | null | undefined | false
+        | [ToolFunction, string, Record<string, unknown>]
+        | null
+        | undefined
+        | false
     )[]
 ): void {
     const validEntries = entries.filter(Boolean) as [
         ToolFunction,
         string,
-        Record<string, any>,
+        Record<string, unknown>,
     ][]
 
     for (const [func, description, parameters] of validEntries) {
@@ -81,7 +80,7 @@ function serveAsTool(
                     const output =
                         result instanceof Promise ? await result : result
                     process.send!({ type: 'result', id, result: output })
-                } catch (err: any) {
+                } catch (err) {
                     let error: string
                     if (err instanceof Error) {
                         error = `${err.name}:${err.message}\n${err.stack}`
@@ -117,7 +116,12 @@ async function chatCompletion(
 ): Promise<ChatCompletionResponse> {
     const id = String(++nextChatId)
     return new Promise((resolve, reject) => {
-        pendingChats.set(id, { resolve, reject })
+        pendingChats.set(id, {
+            resolve(value) {
+                resolve(value as ChatCompletionResponse)
+            },
+            reject,
+        })
         process.send!({ type: 'chatCompletion', id, request })
     })
 }
@@ -126,11 +130,11 @@ function ToJSONSchema(
     argsDefs: [
         string,
         string,
-        { new (...args: any[]): any },
+        StringConstructor | NumberConstructor | BooleanConstructor,
         { optional?: boolean }?,
     ][]
-): Record<string, any> {
-    const properties: Record<string, any> = {}
+): Record<string, unknown> {
+    const properties: Record<string, unknown> = {}
     const required: string[] = []
 
     for (const def of argsDefs) {
@@ -169,6 +173,6 @@ function ToJSONSchema(
     }
 }
 
-;(globalThis as any).serveAsTool = serveAsTool
-;(globalThis as any).chatCompletion = chatCompletion
-;(globalThis as any).ToJSONSchema = ToJSONSchema
+;(globalThis as Record<string, unknown>).serveAsTool = serveAsTool
+;(globalThis as Record<string, unknown>).chatCompletion = chatCompletion
+;(globalThis as Record<string, unknown>).ToJSONSchema = ToJSONSchema

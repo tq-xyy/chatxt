@@ -178,7 +178,9 @@ export async function initConfig(): Promise<void> {
         await access(configPath, constants.F_OK)
         printWarningMessage('.chatfilerc/config.json already exists.')
         return
-    } catch {}
+    } catch {
+        // create config if config not exists
+    }
 
     await writeFile(configPath, JSON.stringify(configTemplate, null, 2) + '\n')
     console.log(`Created config template at ${configPath}`)

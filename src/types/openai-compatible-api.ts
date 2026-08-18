@@ -47,7 +47,7 @@ export interface ToolDefinition {
     function: {
         description?: string
         name: string
-        parameters?: Record<string, any> // JSON Schema
+        parameters?: Record<string, unknown> // JSON Schema
         strict?: boolean
     }
 }

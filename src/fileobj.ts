@@ -89,7 +89,7 @@ function parseToBlock(chatText: string): Block[] {
                     return component
                 }
                 if (
-                    !VALID_DIRECTIVES.includes(match[1] as any) &&
+                    !VALID_DIRECTIVES.includes(match[1] as DirectiveType) &&
                     match[1] !== ''
                 ) {
                     return component
@@ -183,7 +183,7 @@ export class ChatFile {
     ): Promise<[Message, Set<string>]> {
         let content = ''
         let suffixContent = ''
-        let toolSet = new Set<string>()
+        const toolSet = new Set<string>()
 
         for (const comp of block.components) {
             const rootDir = path.dirname(this.chatFilePath)
@@ -241,7 +241,7 @@ export class ChatFile {
     }
 
     private parseToolBlockToToolCalls(block: Block): ToolCall[] {
-        const toolRegex = /^([\w\.]+)\s*\(([^)]+)\):\s*(.*)$/
+        const toolRegex = /^([\w.]+)\s*\(([^)]+)\):\s*(.*)$/
 
         const toolCalls: ToolCall[] = []
 

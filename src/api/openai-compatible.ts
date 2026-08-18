@@ -28,7 +28,9 @@ async function requestChatCompletion(
         try {
             const errorJSON = JSON.parse(errorText)
             errorText = errorJSON.error.message || errorText
-        } catch {}
+        } catch {
+            // use original error text
+        }
 
         const statusText =
             resp.statusText.length > 0
