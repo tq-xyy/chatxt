@@ -34,7 +34,7 @@ async function requestChatCompletion(
         } catch {}
 
         throw new Error(
-            `API Request Failed (${resp.status}), error message: ${errorText}`
+            `API Request Failed (${resp.status} ${resp.statusText}), error message: ${errorText}`
         )
     }
 

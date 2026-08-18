@@ -93,8 +93,9 @@ export class ChatSession {
         }
 
         try {
-            const [messages, toolPaths] = await this.file.buildPrompt()
-            this.messages = messages
+            const { system, messages, toolPaths } =
+                await this.file.buildPrompt()
+            this.messages = system ? [system, ...messages] : messages
             this.chatTurn = messages.filter(msg => msg.role === 'user').length
 
             if (
@@ -130,7 +131,7 @@ export class ChatSession {
                         this.config
                     )
 
-                    const toolCalls: ToolCall[] = []
+                    const toolCallChunks: ToolCallChunk[] = []
                     this.messages.push({
                         role: 'assistant',
                         reasoning_content: '',
@@ -143,7 +144,7 @@ export class ChatSession {
                         outputFlag = await this.handleChunk(
                             chunk,
                             outputFlag,
-                            toolCalls
+                            toolCallChunks
                         )
                     }
                 } catch (err) {
@@ -181,7 +182,7 @@ export class ChatSession {
     private async handleChunk(
         chunk: ChatCompletionChunk,
         outputFlag: ChatRole | boolean,
-        toolCalls: ToolCall[]
+        toolCallChunks: ToolCallChunk[]
     ): Promise<ChatRole | boolean> {
         if (chunk.usage) {
             this.addUsageRecord(chunk.usage)
@@ -231,18 +232,17 @@ export class ChatSession {
         }
         if (toolCallDelta) {
             for (const tc of toolCallDelta) {
-                tc.id = this.generateToolCallId()
                 this.file.appendToolCallChunkToToolBlock(tc)
                 this.reporter.update(estimateTokens(tc.function.arguments))
+                toolCallChunks.push(tc)
             }
-
-            mergeToolCallChunks(toolCalls, toolCallDelta)
         }
 
         if (choice.finish_reason === 'tool_calls') {
             // discard duplicate tool calls
             if (this.messages.at(-1)?.role !== 'tool') {
-                await this.handleToolCalls(toolCalls)
+                const calls = mergeToolCallChunks(toolCallChunks)
+                await this.handleToolCalls(calls)
                 outputFlag = 'UNKNOWN'
             }
         } else if (choice.finish_reason) {
@@ -346,9 +346,5 @@ export class ChatSession {
             this.sumUsage,
             normalizeUsage(usage)
         )
-    }
-
-    private generateToolCallId(): string {
-        return `${this.chatTurn}-${this.sumToolCall}`
     }
 }

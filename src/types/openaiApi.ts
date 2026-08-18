@@ -1,12 +1,12 @@
 // ======================== 消息类型 ========================
 
-interface SystemMessage {
+export interface SystemMessage {
     content: string
     role: 'system'
     name?: string
 }
 
-interface UserMessage {
+export interface UserMessage {
     content: string
     role: 'user'
     name?: string
@@ -22,7 +22,7 @@ export interface ToolCall {
     }
 }
 
-interface AssistantMessage {
+export interface AssistantMessage {
     content: string | null // 必需，但可为 null
     role: 'assistant'
     name?: string

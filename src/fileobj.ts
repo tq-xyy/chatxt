@@ -3,6 +3,7 @@ import * as path from 'path'
 
 import type {
     Message,
+    SystemMessage,
     ToolCall,
     ToolCallChunk,
     ToolMessage,
@@ -263,10 +264,10 @@ export class ChatFile {
     }
 
     public appendToolCallChunkToToolBlock(tc: ToolCallChunk) {
-        if (tc.type === 'function') {
+        if (tc.type === 'function' && tc.id && tc.function.name) {
             this.appendContent(`\n${tc.function.name} (${tc.id}): `)
         }
-        if (tc.function.arguments) {
+        if (tc.function.arguments?.length) {
             this.appendContent(tc.function.arguments)
         }
     }
@@ -293,7 +294,11 @@ export class ChatFile {
         }
     }
 
-    async buildPrompt(): Promise<[Message[], string[]]> {
+    async buildPrompt(): Promise<{
+        messages: Message[]
+        toolPaths: string[]
+        system: SystemMessage | null
+    }> {
         let chatText = await readFile(this.chatFilePath, 'utf-8')
 
         // 忽略 shebang 行
@@ -303,17 +308,29 @@ export class ChatFile {
 
         const blocks = parseToBlock(chatText)
 
+        let system: SystemMessage | null = null
         const messages: Message[] = []
-        const tools = new Set<string>()
+        const toolPaths = new Set<string>()
 
         for (const block of blocks) {
             if (block.role === 'SYSTEM' || block.role === 'USER') {
                 const [msg, toolSet] =
                     await this.applyDirectiveToMessage(block)
                 for (const toolPath of toolSet) {
-                    tools.add(toolPath)
+                    toolPaths.add(toolPath)
                 }
-                messages.push(msg)
+
+                if (msg.role === 'system') {
+                    if (system !== null) {
+                        printWarningMessage(
+                            'A chat file must only have one SYSTEM block'
+                        )
+                    } else {
+                        system = msg
+                    }
+                } else {
+                    messages.push(msg)
+                }
             }
             if (block.role === 'ASSISTANT') {
                 messages.push(this.convertPlainBlockToMessage(block))
@@ -338,6 +355,7 @@ export class ChatFile {
                 messages.push(...this.parseToolResponseBlockToMessages(block))
             }
         }
-        return [messages, [...tools]]
+
+        return { system, messages, toolPaths: [...toolPaths] }
     }
 }
