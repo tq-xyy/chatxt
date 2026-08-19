@@ -2,22 +2,20 @@ import type { Config, ModelGateway } from '../config'
 import type { ChatRole } from '../fileobj'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type {
-    ChatCompletionChunk,
-    ChatCompletionRequest,
     Message,
     SystemMessage,
     ToolCallChunk,
     ToolDefinition,
     ToolMessage,
-    Usage,
     ToolCall,
-} from '../types/openai-compatible-api'
+} from '../types/chat-file'
+import type {
+    ChatCompletionChunk,
+    ChatCompletionRequest,
+    Usage,
+} from '../types/apis/openai-compatible-api'
 import type { SSEMessage } from '../utils/sseStream'
-import {
-    mergeNormalizedUsage,
-    type NormalizedUsage,
-    normalizeUsage,
-} from '../common/usage'
+import { mergeNormalizedUsage, type NormalizedUsage } from '../common/usage'
 
 export async function chatCompletion(
     request: ChatCompletionRequest,
@@ -57,11 +55,35 @@ export async function chatCompletion(
     return resp
 }
 
-export function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
-    const toolCallList: ToolCall[] = []
+function normalizeUsage(usage: Usage): NormalizedUsage {
+    return {
+        input: usage.prompt_tokens,
+        output: usage.completion_tokens,
+        cached:
+            usage.prompt_cache_hit_tokens ||
+            usage.prompt_tokens_details?.cached_tokens ||
+            0,
+        thinking: usage.completion_tokens_details?.reasoning_tokens || 0,
+    }
+}
 
-    for (const chunk of chunks) {
-        if (!chunk.function.name) {
+export function mergeToolCallChunks(
+    toolCallChunks: ToolCallChunk[]
+): ToolCall[] {
+    const toolCallList: ToolCall[] = []
+    for (const chunk of toolCallChunks) {
+        if (chunk.function.name) {
+            // 复制对象，避免累加时污染 this.toolCallChunks
+            toolCallList.push({
+                index: chunk.index,
+                id: chunk.id!,
+                type: 'function',
+                function: {
+                    name: chunk.function.name,
+                    arguments: chunk.function.arguments,
+                },
+            })
+        } else {
             const index = toolCallList.findIndex(
                 block => block.index === chunk.index
             )
@@ -69,11 +91,8 @@ export function mergeToolCallChunks(chunks: ToolCallChunk[]): ToolCall[] {
                 throw new Error(`unexcepted tool call index: ${chunk.index}`)
             }
             toolCallList[index].function.arguments += chunk.function.arguments
-        } else {
-            toolCallList.push(chunk as ToolCall)
         }
     }
-
     return toolCallList
 }
 
@@ -184,7 +203,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
         if (chunk.usage) {
             this.addUsageRecord(chunk.usage)
             await emit({
-                type: 'finish',
+                type: 'response-end',
                 usage: this.sumUsage,
             })
         }
@@ -254,7 +273,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
             }
         } else if (choice.finish_reason) {
             await emit({
-                type: 'finish',
+                type: 'response-end',
                 finishReason: choice.finish_reason,
             })
         }

@@ -1,6 +1,6 @@
 {
     "name": "chatfile",
-    "version": "0.5.1",
+    "version": "1.0.0",
     "type": "module",
     "description": "Chatfile - AI conversations recorded as .chat.md files",
     "bin": {

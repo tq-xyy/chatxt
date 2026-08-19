@@ -1,11 +1,7 @@
 import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import type {
-    ToolDefinition,
-    ToolCall,
-    ToolMessage,
-} from '../types/openai-compatible-api'
+import type { ToolDefinition, ToolCall, ToolMessage } from '../types/chat-file'
 import type { ChatCompletionMessage, IPCMessage } from './ipc-types'
 import type { ChatSession } from '../session'
 import { printWarningMessage, printExceptionMessage } from '../tui'

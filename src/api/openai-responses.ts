@@ -4,11 +4,10 @@ import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type {
     Message,
     SystemMessage,
-    ToolCall,
     ToolCallChunk,
     ToolDefinition,
     ToolMessage,
-} from '../types/openai-compatible-api'
+} from '../types/chat-file'
 import type { SSEMessage } from '../utils/sseStream'
 import type {
     ResponsesInputItem,
@@ -16,8 +15,9 @@ import type {
     ResponsesStreamEvent,
     ResponsesToolDefinition,
     ResponsesUsage,
-} from '../types/openai-responses-api'
+} from '../types/apis/openai-responses-api'
 import { mergeNormalizedUsage, type NormalizedUsage } from '../common/usage'
+import { mergeToolCallChunks } from './openai-compatible'
 
 // ======================== HTTP 层 ========================
 
@@ -291,14 +291,17 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                         return
                     }
                     this.endedToolCallIndexes.add(event.output_index)
+
+                    const toolCalls = mergeToolCallChunks(this.toolCallChunks)
+
                     const lastMessage = this.messages.at(-1)
                     if (lastMessage?.role === 'assistant') {
-                        lastMessage.tool_calls = this.mergeToolCalls()
+                        lastMessage.tool_calls = toolCalls
                     }
                     this.outputFlag = 'UNKNOWN'
                     await emit({
                         type: 'function-call-end',
-                        toolCalls: this.mergeToolCalls(),
+                        toolCalls,
                     })
                 }
                 return
@@ -307,14 +310,14 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
             case 'response.completed': {
                 if (event.response.usage) {
                     this.addUsageRecord(event.response.usage)
-                    await emit({ type: 'finish', usage: this.sumUsage })
+                    await emit({ type: 'response-end', usage: this.sumUsage })
                 }
                 // 判断是否因工具调用结束（output 含 function_call 但未 emit end）
                 const hasFunctionCall = event.response.output.some(
                     item => item.type === 'function_call'
                 )
                 if (!hasFunctionCall) {
-                    await emit({ type: 'finish', finishReason: 'stop' })
+                    await emit({ type: 'response-end', finishReason: 'stop' })
                 }
                 return
             }
@@ -329,36 +332,6 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     `OpenAI Responses API error: ${event.error.message}`
                 )
         }
-    }
-
-    private mergeToolCalls(): ToolCall[] {
-        const toolCallList: ToolCall[] = []
-        for (const chunk of this.toolCallChunks) {
-            if (chunk.function.name) {
-                // 复制对象，避免累加时污染 this.toolCallChunks
-                toolCallList.push({
-                    index: chunk.index,
-                    id: chunk.id!,
-                    type: 'function',
-                    function: {
-                        name: chunk.function.name,
-                        arguments: chunk.function.arguments,
-                    },
-                })
-            } else {
-                const index = toolCallList.findIndex(
-                    block => block.index === chunk.index
-                )
-                if (index === -1) {
-                    throw new Error(
-                        `unexcepted tool call index: ${chunk.index}`
-                    )
-                }
-                toolCallList[index].function.arguments +=
-                    chunk.function.arguments
-            }
-        }
-        return toolCallList
     }
 
     private addUsageRecord(usage: ResponsesUsage) {

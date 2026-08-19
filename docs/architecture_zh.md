@@ -8,9 +8,9 @@ Chatfile 是一个"对话即文件"的命令行 AI 聊天工具。用户在 `.ch
 - 构建：esbuild 打包为单文件 `dist/cli.js`
 - 运行时依赖：`commander`（CLI 解析）、`chalk`（终端着色）
 - API 协议：多 provider 支持，通过 `APIAdapter` 接口归一化。内部统一使用 OpenAI Chat Completions 形状，在 adapter 边界转换为各 provider 的 wire 格式：
-  - `openai-compatible`：`/chat/completions`（DeepSeek、Zhipu、MiniMax 等）
-  - `openai-responses`：`/responses`（GPT、Grok 等）
-  - `anthropic`：`/messages`（Claude、Qwen 等经 Anthropic 兼容网关）
+    - `openai-compatible`：`/chat/completions`（DeepSeek、Zhipu、MiniMax 等）
+    - `openai-responses`：`/responses`（GPT、Grok 等）
+    - `anthropic`：`/messages`（Claude、Qwen 等经 Anthropic 兼容网关）
 
 ---
 

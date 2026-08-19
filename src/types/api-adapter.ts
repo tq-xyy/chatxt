@@ -4,58 +4,60 @@ import type {
     SystemMessage,
     ToolDefinition,
     ToolMessage,
-} from './openai-compatible-api'
+    ToolCall,
+    ToolCallChunk,
+    FinishReason,
+} from './chat-file'
 import type { SSEMessage } from '../utils/sseStream'
 
 import type { NormalizedUsage } from '../common/usage'
-import type { ToolCall, ToolCallChunk } from './openai-compatible-api'
 
-export interface ReasoningStartEvent {
+interface ReasoningStartEvent {
     type: 'reasoning-start'
 }
 
-export interface ReasoningDeltaEvent {
+interface ReasoningDeltaEvent {
     type: 'reasoning-delta'
     /** only for display */
     delta: string
 }
 
-export interface ReasoningEndEvent {
+interface ReasoningEndEvent {
     type: 'reasoning-end'
 }
 
-export interface ContentStartEvent {
+interface ContentStartEvent {
     type: 'content-start'
 }
 
-export interface ContentDeltaEvent {
+interface ContentDeltaEvent {
     type: 'content-delta'
     /** only for display */
     delta: string
 }
 
-export interface ContentEndEvent {
+interface ContentEndEvent {
     type: 'content-end'
 }
 
-export interface FunctionCallStartEvent {
+interface FunctionCallStartEvent {
     type: 'function-call-start'
 }
 
-export interface FunctionCallDeltaEvent {
+interface FunctionCallDeltaEvent {
     type: 'function-call-delta'
     /** only for display */
     toolCallChunk: ToolCallChunk
 }
 
-export interface FunctionCallEndEvent {
+interface FunctionCallEndEvent {
     type: 'function-call-end'
     toolCalls: ToolCall[]
 }
 
-export interface FinishEvent {
-    type: 'finish'
-    finishReason?: string
+interface ResponseEndEvent {
+    type: 'response-end'
+    finishReason?: FinishReason
     usage?: NormalizedUsage
 }
 
@@ -69,7 +71,7 @@ export type StreamEvent =
     | FunctionCallStartEvent
     | FunctionCallDeltaEvent
     | FunctionCallEndEvent
-    | FinishEvent
+    | ResponseEndEvent
 
 export interface APIAdapter<Chunk = unknown> {
     whenParsedChat(chat: {

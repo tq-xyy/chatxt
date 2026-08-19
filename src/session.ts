@@ -18,11 +18,12 @@ import { parseSSEStream } from './utils/sseStream'
 import type {
     ChatCompletionResponse,
     ChatCompletionRequest,
-} from './types/openai-compatible-api'
+} from './types/apis/openai-compatible-api'
+import type { FinishReason } from './types/chat-file'
 import type { APIAdapter, StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
 
-function processFinishReason(finishReason: string): void {
+function processFinishReason(finishReason: FinishReason): void {
     switch (finishReason) {
         case 'stop':
         case 'length':
@@ -67,7 +68,8 @@ export class ChatSession {
 
         this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
 
-        this.api = createAPIAdapter('openai-compatible')
+        const gateway = getModelGateway(this.config, this.config.model)
+        this.api = createAPIAdapter(gateway.endpointType)
     }
 
     async loop(): Promise<void> {
@@ -88,9 +90,6 @@ export class ChatSession {
         }
 
         try {
-            const gateway = getModelGateway(this.config, this.config.model)
-            this.api = createAPIAdapter(gateway.endpointType)
-
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
 
@@ -105,8 +104,6 @@ export class ChatSession {
 
             await this.toolRunner.loadTools(toolPaths)
 
-            this.reporter.update(0)
-
             this.api.whenParsedChat({
                 messages,
                 system,
@@ -117,10 +114,12 @@ export class ChatSession {
 
             while (true) {
                 this.reporter.setPrompt('Requesting...')
+                this.reporter.update(0)
+
                 try {
                     const resp = await this.api.whenReadyToRequest(
                         this.config,
-                        gateway
+                        getModelGateway(this.config, this.config.model)
                     )
 
                     for await (const message of parseSSEStream(resp)) {
@@ -213,7 +212,7 @@ export class ChatSession {
                 break
             }
 
-            case 'finish': {
+            case 'response-end': {
                 if (msg.finishReason) {
                     processFinishReason(msg.finishReason)
                     this.stop = true
@@ -326,7 +325,7 @@ export class ChatSession {
                     result.choices[0].message.content += msg.delta
                     this.reporter.update(msg.delta)
                     break
-                case 'finish':
+                case 'response-end':
                     if (msg.finishReason) {
                         result.choices[0].finish_reason =
                             msg.finishReason as ChatCompletionResponse['choices'][0]['finish_reason']

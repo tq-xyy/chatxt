@@ -2,13 +2,14 @@ import type { Config, ModelGateway } from '../config'
 import type { ChatRole } from '../fileobj'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type {
+    FinishReason,
     Message,
     SystemMessage,
     ToolCall,
     ToolCallChunk,
     ToolDefinition,
     ToolMessage,
-} from '../types/openai-compatible-api'
+} from '../types/chat-file'
 import type { SSEMessage } from '../utils/sseStream'
 import type {
     AnthropicContentBlock,
@@ -17,7 +18,7 @@ import type {
     AnthropicStreamEvent,
     AnthropicToolDefinition,
     AnthropicUsage,
-} from '../types/anthropic-api'
+} from '../types/apis/anthropic-api'
 import { mergeNormalizedUsage, type NormalizedUsage } from '../common/usage'
 
 // ======================== HTTP 层 ========================
@@ -281,7 +282,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                     })
                 } else if (stopReason) {
                     await emit({
-                        type: 'finish',
+                        type: 'response-end',
                         finishReason: this.mapStopReason(stopReason),
                     })
                 }
@@ -290,7 +291,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                         input_tokens: 0,
                         output_tokens: event.usage.output_tokens,
                     })
-                    await emit({ type: 'finish', usage: this.sumUsage })
+                    await emit({ type: 'response-end', usage: this.sumUsage })
                 }
                 return
             }
@@ -335,7 +336,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
         return toolCallList
     }
 
-    private mapStopReason(stopReason: string): string {
+    private mapStopReason(stopReason: string): FinishReason {
         switch (stopReason) {
             case 'end_turn':
                 return 'stop'
@@ -344,7 +345,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
             case 'stop_sequence':
                 return 'stop'
             default:
-                return stopReason
+                return stopReason as FinishReason
         }
     }
 

@@ -52,49 +52,40 @@ export interface ToolDefinition {
     }
 }
 
-type ToolChoice =
-    | 'none'
-    | 'auto'
-    | 'required'
-    | {
-          type: 'function'
-          function: {
-              name: string
-          }
-      }
-
 export interface ChatCompletionRequest {
-    // 原生 /chat/completions 请求体
-    messages: Message[] // Required
-    model: string // Required, 'deepseek-v4-flash' | 'deepseek-v4-pro'
+    messages: Message[]
+    model: string
     thinking?: {
         type?: 'enabled' | 'disabled' | /* mimimax only */ 'adaptive'
-    } | null
-    reasoning_effort?: 'high' | 'max' | null
-    max_tokens?: number | null
+    }
+    reasoning_effort?: 'low' | 'medium' | 'high' | 'max'
+    max_tokens?: number
     response_format?: {
         type?: 'text' | 'json_object'
-    } | null
-    stop?: string | string[] | null
-    stream?: boolean | null
+    }
+
+    stream?: boolean
     stream_options?: {
         include_usage?: boolean
-    } | null
-    temperature?: number | null
-    top_p?: number | null
-    tools?: ToolDefinition[] | null
-    tool_choice?: ToolChoice | null
+    }
+
+    temperature?: number
+    top_p?: number
+
+    tools?: ToolDefinition[]
 }
 
 // ======================== 响应类型 ========================
 
+export type FinishReason =
+    | 'stop'
+    | 'length'
+    | 'content_filter'
+    | 'tool_calls'
+    | 'insufficient_system_resource'
+
 interface Choice {
-    finish_reason:
-        | 'stop'
-        | 'length'
-        | 'content_filter'
-        | 'tool_calls'
-        | 'insufficient_system_resource'
+    finish_reason: FinishReason
     index: number
     message: AssistantMessage
 }
@@ -122,7 +113,6 @@ export interface Usage {
 }
 
 export interface ChatCompletionResponse {
-    /** 非流式 200 响应 */
     choices: Choice[]
     usage?: Usage
 }
@@ -140,22 +130,19 @@ export interface ToolCallChunk {
 }
 
 interface ChoiceDelta {
-    content: string | null // 必需，但可为 null
-    reasoning_content?: string | null // deepseek, kimi
-    reasoning?: string | null // hy3
-    role?: 'assistant'
-    tool_calls?: ToolCallChunk[] | null // 可为 null
+    content: string // 必需，但可为 null
+
+    reasoning_content?: string // deepseek, kimi
+    reasoning?: string // hy3
+
+    role: 'assistant'
+
+    tool_calls?: ToolCallChunk[] // 可为 null
 }
 
 interface ChoiceChunk {
     delta: ChoiceDelta
-    finish_reason:
-        | 'stop'
-        | 'length'
-        | 'content_filter'
-        | 'tool_calls'
-        | 'insufficient_system_resource'
-        | null
+    finish_reason: FinishReason | null
     index: number
 }
 
