@@ -143,6 +143,7 @@ export class ProgressReporter {
             clearTimeout(this.drawTimer)
             this.drawTimer = null
         }
+        if (!process.stdout.isTTY) return
         process.stdout.clearLine(0)
         process.stdout.cursorTo(0)
         // 不重置累计 token 与开始时间，允许再次 update 继续
@@ -179,6 +180,8 @@ export class ProgressReporter {
      * 实际绘制进度行
      */
     private draw(): void {
+        if (!process.stdout.isTTY) return
+
         const now = Date.now()
         this.lastDrawTime = now
 

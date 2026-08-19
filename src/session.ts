@@ -20,7 +20,7 @@ import type {
     ChatCompletionRequest,
 } from './types/openai-compatible-api'
 import type { APIAdapter, StreamEvent } from './types/api-adapter'
-import { OpenAICompatibleAPIAdapter } from './api/openai-compatible'
+import { createAPIAdapter } from './api'
 
 function processFinishReason(finishReason: string): void {
     switch (finishReason) {
@@ -67,7 +67,7 @@ export class ChatSession {
 
         this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
 
-        this.api = new OpenAICompatibleAPIAdapter()
+        this.api = createAPIAdapter('openai-compatible')
     }
 
     async loop(): Promise<void> {
@@ -89,12 +89,7 @@ export class ChatSession {
 
         try {
             const gateway = getModelGateway(this.config, this.config.model)
-
-            if (gateway.endpointType !== 'openai-compatible') {
-                throw new Error(
-                    'The support of OpenAI Responses API and Anthropic API will come soon~'
-                )
-            }
+            this.api = createAPIAdapter(gateway.endpointType)
 
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
@@ -277,7 +272,7 @@ export class ChatSession {
 
         const apiGateway = getModelGateway(this.config, request.model)
 
-        const api: APIAdapter = new OpenAICompatibleAPIAdapter()
+        const api: APIAdapter = createAPIAdapter(apiGateway.endpointType)
 
         await api.whenParsedChat({
             messages: request.messages.filter(msg => msg.role !== 'system'),
