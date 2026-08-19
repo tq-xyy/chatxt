@@ -114,6 +114,26 @@ const estimatedModelPricing: Record<string, Pricing> = {
         pricingPerMillionTokens: { input: 8, output: 28, cached: 2 },
         pricingCurrency: 'CNY',
     },
+
+    // https://help.aliyun.com/zh/model-studio/model-pricing
+    'qwen3.8-max': {
+        pricingPerMillionTokens: { input: 12, output: 36, cached: 2.4 },
+        pricingCurrency: 'CNY',
+    },
+    'qwen3.7-max': {
+        // 限时 5 折
+        pricingPerMillionTokens: { input: 6, output: 18, cached: 1.2 },
+        pricingCurrency: 'CNY',
+    },
+    'qwen3.7-plus': {
+        // 限时 8 折
+        pricingPerMillionTokens: { input: 2.8, output: 19.2, cached: 0.56 },
+        pricingCurrency: 'CNY',
+    },
+    'qwen3.6-plus': {
+        pricingPerMillionTokens: { input: 2, output: 12, cached: 12 },
+        pricingCurrency: 'CNY',
+    },
 }
 
 export function computeTokenCostCNY(
