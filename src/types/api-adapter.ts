@@ -72,13 +72,11 @@ export type StreamEvent =
     | FinishEvent
 
 export interface APIAdapter<Chunk = unknown> {
-    whenParsedChat(
-        chat: {
-            messages: Message[]
-            system: SystemMessage | null
-        },
+    whenParsedChat(chat: {
+        messages: Message[]
+        system: SystemMessage | null
         toolDefitions: ToolDefinition[]
-    ): Promise<void>
+    }): Promise<void>
     whenReadyToRequest(
         config: Config,
         gateway: ModelGateway,

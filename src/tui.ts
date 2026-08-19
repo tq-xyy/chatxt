@@ -28,12 +28,13 @@ export function printExceptionMessage(err: unknown): void {
 }
 
 export function printFinalStatus(status: {
+    ok: boolean
     usage: NormalizedUsage
     startTime: number
     config: Config
     toolCallCount: number
 }): void {
-    const { usage, startTime, config, toolCallCount } = status
+    const { ok, usage, startTime, config, toolCallCount } = status
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
 
     const fn = (n: number) => n.toLocaleString('en-US')
@@ -42,11 +43,13 @@ export function printFinalStatus(status: {
     const gateway = getModelGateway(config, config.model)
 
     console.log(
-        chalk.green('✔ Generation completed.') +
-            chalk.white('  ·  Model: ') +
-            chalk.magenta(config.model) +
-            chalk.white('  ·  Provider: ') +
-            chalk.magenta(gateway.providerName)
+        ok
+            ? chalk.green('✔ Generation completed.')
+            : '' +
+                  chalk.white('  ·  Model: ') +
+                  chalk.magenta(config.model) +
+                  chalk.white('  ·  Provider: ') +
+                  chalk.magenta(gateway.providerName)
     )
 
     // 第二行：Token 总计与分类

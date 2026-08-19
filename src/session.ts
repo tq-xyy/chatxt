@@ -4,13 +4,8 @@ import { writeFile } from 'fs/promises'
 import { getModelGateway, type Config } from './config'
 import { ChatFile } from './fileobj'
 
-import {
-    mergeNormalizedUsage,
-    normalizeUsage,
-    type NormalizedUsage,
-} from './common/usage'
+import { mergeNormalizedUsage, type NormalizedUsage } from './common/usage'
 import { defaultSystemPrompt } from './common/prompt'
-import { chatCompletionStream } from './api/openai-compatible'
 import { ToolRunner } from './tools/runner'
 import {
     printExceptionMessage,
@@ -19,16 +14,13 @@ import {
     ProgressReporter,
 } from './tui'
 import { parseSSEStream } from './utils/sseStream'
-import { estimateTokens } from './utils/estimateTokens'
 
 import type {
-    ChatCompletionChunk,
     ChatCompletionResponse,
     ChatCompletionRequest,
-    Usage,
 } from './types/openai-compatible-api'
 import type { APIAdapter, StreamEvent } from './types/api-adapter'
-import { OpenAICompatibleAPIAdapter } from './controllers/openai-compatible'
+import { OpenAICompatibleAPIAdapter } from './api/openai-compatible'
 
 function processFinishReason(finishReason: string): void {
     switch (finishReason) {
@@ -120,10 +112,11 @@ export class ChatSession {
 
             this.reporter.update(0)
 
-            this.api.whenParsedChat(
-                { messages, system },
-                this.toolRunner.getDefinitions()
-            )
+            this.api.whenParsedChat({
+                messages,
+                system,
+                toolDefitions: this.toolRunner.getDefinitions(),
+            })
 
             let retryTimes: number = 0
 
@@ -154,21 +147,26 @@ export class ChatSession {
                     }
                 }
             }
-            this.checkFinish()
+            await this.checkFinish()
         } catch (err) {
-            this.reporter.close()
+            this.stop = true
             printExceptionMessage(err)
+            await this.checkFinish(err as Error)
         }
     }
 
     private async onEmit(msg: StreamEvent): Promise<void> {
         switch (msg.type) {
             case 'reasoning-start':
-                this.file.appendThinkingText('', true)
+                if (this.config.showThinking) {
+                    this.file.appendRoleLine('THINKING')
+                }
                 this.reporter.setPrompt('Thinking...')
                 break
             case 'reasoning-delta':
-                this.file.appendThinkingText(msg.delta, false)
+                if (this.config.showThinking) {
+                    this.file.appendContent(msg.delta)
+                }
                 this.reporter.update(msg.delta)
                 break
             case 'reasoning-end':
@@ -186,14 +184,12 @@ export class ChatSession {
                 break
 
             case 'function-call-start':
-                this.file.appendRoleLine('TOOL')
+                this.file.appendRoleLine('TOOL', { withoutNewLine: false })
                 this.reporter.setPrompt('Generating Function Call...')
                 break
             case 'function-call-delta':
                 this.file.appendToolCallChunkToToolBlock(msg.toolCallChunk)
-                this.reporter.update(
-                    estimateTokens(msg.toolCallChunk.function.arguments)
-                )
+                this.reporter.update(msg.toolCallChunk.function.arguments)
                 break
             case 'function-call-end': {
                 this.sumToolCall += msg.toolCalls.length
@@ -235,16 +231,20 @@ export class ChatSession {
         }
     }
 
-    async checkFinish() {
+    private async checkFinish(error?: Error) {
         if (!this.stop) {
             return
         }
-        this.file.appendRoleLine('USER')
+
+        if (!error) {
+            this.file.appendRoleLine('USER')
+        }
         await this.file.flushBuffer()
 
         this.reporter.close()
 
         printFinalStatus({
+            ok: !error,
             startTime: this.startTime,
             usage: this.sumUsage,
             toolCallCount: this.sumToolCall,
@@ -273,15 +273,38 @@ export class ChatSession {
             request.model = this.config.model
         }
 
+        this.reporter.setPrompt('Call Function | Sub Agent Generating...')
+
         const apiGateway = getModelGateway(this.config, request.model)
 
-        const resp = await chatCompletionStream(
-            {
-                ...request,
-                stream_options: { include_usage: true },
-            },
-            apiGateway
-        )
+        const api: APIAdapter = new OpenAICompatibleAPIAdapter()
+
+        await api.whenParsedChat({
+            messages: request.messages.filter(msg => msg.role !== 'system'),
+            system:
+                request.messages.find(msg => msg.role === 'system') ?? null,
+            toolDefitions: [],
+        })
+
+        const newConfig = { ...this.config }
+
+        if (request.thinking) {
+            newConfig.thinkingMode = request.thinking.type
+        }
+
+        if (request.reasoning_effort) {
+            newConfig.thinkingEffort = request.reasoning_effort
+        }
+
+        if (request.max_tokens) {
+            newConfig.maxTokens = request.max_tokens
+        }
+
+        if (request.response_format?.type === 'json_object') {
+            newConfig.jsonOnly = true
+        }
+
+        const resp = await api.whenReadyToRequest(newConfig, apiGateway)
 
         const result: ChatCompletionResponse = {
             choices: [
@@ -298,53 +321,48 @@ export class ChatSession {
             usage: undefined,
         }
 
-        this.reporter.setPrompt('Call Function | Sub Agent Generating...')
+        const emit = async (msg: StreamEvent) => {
+            switch (msg.type) {
+                case 'reasoning-delta':
+                    result.choices[0].message.reasoning_content += msg.delta
+                    this.reporter.update(msg.delta)
+                    break
+                case 'content-delta':
+                    result.choices[0].message.content += msg.delta
+                    this.reporter.update(msg.delta)
+                    break
+                case 'finish':
+                    if (msg.finishReason) {
+                        result.choices[0].finish_reason =
+                            msg.finishReason as ChatCompletionResponse['choices'][0]['finish_reason']
+                    }
+                    if (msg.usage) {
+                        result.usage = {
+                            prompt_tokens: msg.usage.input,
+                            completion_tokens: msg.usage.output,
+                            total_tokens: msg.usage.input + msg.usage.output,
+                            prompt_cache_hit_tokens: msg.usage.cached,
+                            prompt_cache_miss_tokens:
+                                msg.usage.input - msg.usage.cached,
+                            completion_tokens_details: {
+                                reasoning_tokens: msg.usage.thinking,
+                            },
+                        }
+                        this.addUsageRecord(msg.usage)
+                    }
+                    break
+            }
+        }
 
-        for await (const streamMessage of parseSSEStream<ChatCompletionChunk>(
-            resp
-        )) {
-            const chunk = streamMessage.data
-
-            if (chunk.usage) {
-                this.addUsageRecord(chunk.usage)
-                result.usage = chunk.usage
-            }
-
-            const choice = chunk.choices[0]
-            if (!choice) continue
-
-            const message = result.choices[0].message
-            if (choice.delta?.reasoning_content) {
-                message.reasoning_content =
-                    (message.reasoning_content ?? '') +
-                    choice.delta.reasoning_content
-                this.reporter.update(
-                    estimateTokens(choice.delta?.reasoning_content)
-                )
-            }
-            if (choice.delta?.reasoning) {
-                message.reasoning =
-                    (message.reasoning ?? '') + choice.delta.reasoning
-                this.reporter.update(estimateTokens(choice.delta?.reasoning))
-            }
-            if (choice.delta?.content) {
-                message.content =
-                    (message.content ?? '') + choice.delta.content
-                this.reporter.update(estimateTokens(choice.delta.content))
-            }
-            if (choice.finish_reason) {
-                result.choices[0].finish_reason = choice.finish_reason
-            }
+        for await (const streamMessage of parseSSEStream(resp)) {
+            await api.whenRecvivedChunk(streamMessage, emit)
         }
 
         return result
     }
 
-    private addUsageRecord(usage: Usage | NormalizedUsage) {
+    private addUsageRecord(usage: NormalizedUsage) {
         this.reporter.clear()
-        this.sumUsage = mergeNormalizedUsage(
-            this.sumUsage,
-            normalizeUsage(usage)
-        )
+        this.sumUsage = mergeNormalizedUsage(this.sumUsage, usage)
     }
 }

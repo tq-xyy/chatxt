@@ -23,9 +23,13 @@ export interface Config {
     model: string
     apikey?: string
 
-    thinkingEffort?: string
     showThinking?: boolean
     excludeHistoryToolCall?: boolean
+
+    thinkingEffort?: string
+    thinkingMode?: string
+    maxTokens?: number
+    jsonOnly?: boolean
 }
 
 export interface ModelGateway {
