@@ -42,15 +42,16 @@ export function printFinalStatus(status: {
     // 第一行：生成完成提示、基本信息
     const gateway = getModelGateway(config, config.model)
 
-    console.log(
-        ok
-            ? chalk.green('✔ Generation completed.')
-            : '' +
-                  chalk.white('  ·  Model: ') +
-                  chalk.magenta(config.model) +
-                  chalk.white('  ·  Provider: ') +
-                  chalk.magenta(gateway.providerName)
-    )
+    let firstLine = ok
+        ? chalk.green('✔ Generation completed.')
+        : chalk.bold.red('× Generation failed')
+    firstLine +=
+        chalk.white('  ·  Model: ') +
+        chalk.magenta(config.model) +
+        chalk.white('  ·  Provider: ') +
+        chalk.magenta(gateway.providerName)
+
+    console.info(firstLine)
 
     // 第二行：Token 总计与分类
     const cachedPart = usage.cached
@@ -63,7 +64,7 @@ export function printFinalStatus(status: {
           chalk.magenta(fn(reasoningTokens)) +
           ')'
         : ''
-    console.log(
+    console.info(
         chalk.white.bold('Total tokens: ') +
             chalk.yellow(fn(usage.input + usage.output)) +
             chalk.italic(
@@ -95,7 +96,7 @@ export function printFinalStatus(status: {
             chalk.white('Total tool calls: ') +
             chalk.cyan(toolCallCount.toString())
     }
-    console.log(thirdLine)
+    console.info(thirdLine)
 }
 
 export class ProgressReporter {
