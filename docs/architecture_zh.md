@@ -7,7 +7,10 @@ Chatfile 是一个"对话即文件"的命令行 AI 聊天工具。用户在 `.ch
 - 语言：TypeScript（ESM，Node.js ≥ 22）
 - 构建：esbuild 打包为单文件 `dist/cli.js`
 - 运行时依赖：`commander`（CLI 解析）、`chalk`（终端着色）
-- API 协议：OpenAI 兼容 `/chat/completions`（默认 DeepSeek 端点，支持流式与思维链）
+- API 协议：多 provider 支持，通过 `APIAdapter` 接口归一化。内部统一使用 OpenAI Chat Completions 形状，在 adapter 边界转换为各 provider 的 wire 格式：
+  - `openai-compatible`：`/chat/completions`（DeepSeek、Zhipu、MiniMax 等）
+  - `openai-responses`：`/responses`（GPT、Grok 等）
+  - `anthropic`：`/messages`（Claude、Qwen 等经 Anthropic 兼容网关）
 
 ---
 
@@ -24,23 +27,32 @@ chatfile/
 │   └── automatic_prompt_engineering/   # 示例：AI 自优化 Prompt 的工具集
 └── src/
     ├── cli.ts                # CLI 入口（commander）
-    ├── config.ts             # 配置加载与合并
-    ├── session.ts            # 会话核心循环（ChatSession）
+    ├── config.ts             # 配置加载与合并（多 provider）
+    ├── session.ts            # 会话核心循环（ChatSession，消费 StreamEvent）
     ├── fileobj.ts            # .chat.txt 文件解析与写入（ChatFile）
     ├── tui.ts                # 终端 UI（进度、警告、统计）
+    ├── api/
+    │   ├── index.ts          # createAPIAdapter 工厂（按 endpointType 分发）
+    │   ├── openai-compatible.ts  # OpenAI Chat Completions adapter
+    │   ├── anthropic.ts      # Anthropic Messages adapter
+    │   └── openai-responses.ts   # OpenAI Responses adapter
     ├── types/
-    │   └── openaiApi.ts      # OpenAI 兼容 API 类型定义
+    │   ├── api-adapter.ts    # APIAdapter 接口 + StreamEvent 归一化事件
+    │   ├── openai-compatible-api.ts
+    │   ├── anthropic-api.ts
+    │   └── openai-responses-api.ts
+    ├── common/
+    │   ├── usage.ts          # NormalizedUsage 归一化
+    │   ├── pricing.ts        # 定价表
+    │   └── prompt.ts         # 默认系统提示词
     ├── tools/
     │   ├── runner.ts         # 工具子进程管理（ToolRunner）
     │   ├── tool-runtime.ts   # 注入子进程的全局运行时
     │   ├── tool-runtime.d.ts # 全局函数类型声明
-    │   ├── ipc-types.ts      # 主/子进程 IPC 消息类型
-    │   └── streamhelper.ts   # 流式工具调用分片合并
+    │   └── ipc-types.ts      # 主/子进程 IPC 消息类型
     └── utils/
-        ├── api.ts            # HTTP 请求封装（流式/非流式）
-        ├── sseStream.ts      # SSE 流解析器
-        ├── prompt.ts         # 默认系统提示词
-        └── computeCost.ts    # token 用量合并与成本估算
+        ├── sseStream.ts      # 通用 SSE 流解析器（支持 event 字段）
+        └── estimateTokens.ts # token 估算
 ```
 
 ---
