@@ -3,8 +3,9 @@ import { join, dirname } from 'path'
 import { printWarningMessage } from './tui'
 import type { Pricing } from './common/pricing'
 
-export interface ModelConfig extends Partial<Pricing> {
+export interface ModelConfig {
     alias?: string
+    pricing?: Pricing | Pricing[]
 }
 
 export interface Provider {
@@ -38,7 +39,7 @@ export interface ModelGateway {
     endpointType: Provider['type']
     model: string
     apikey: string
-    pricing?: Pricing
+    pricing?: Pricing | Pricing[]
 }
 
 export function getModelGateway(config: Config, model: string): ModelGateway {
@@ -56,8 +57,10 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
         for (const modelId in provider.models) {
             const modelConf: ModelConfig =
                 provider.models[modelId] === true
-                    ? { alias: modelId }
+                    ? {}
                     : provider.models[modelId]
+
+            modelConf.alias = modelConf.alias || modelId
 
             if (modelConf.alias !== model) {
                 continue
@@ -71,19 +74,14 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
                 model: modelId,
             }
 
-            if (modelConf.pricingPerMillionTokens) {
-                gateway.pricing = {
-                    pricingPerMillionTokens: modelConf.pricingPerMillionTokens,
-                    pricingCurrency: modelConf.pricingCurrency || 'CNY',
-                }
-            }
+            gateway.pricing = modelConf.pricing
 
             return gateway
         }
     }
 
     throw new Error(
-        'Cannot find a vaild model provider to start chat.' +
+        `Cannot find a vaild model provider for ${model} to start chat. ` +
             'Check you if set endpoint and api key in provider.'
     )
 }
