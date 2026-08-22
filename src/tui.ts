@@ -27,68 +27,102 @@ export function printExceptionMessage(err: unknown): void {
     }
 }
 
-export function printFinalStatus(status: {
-    ok: boolean
-    usage: NormalizedUsage
-    startTime: number
+function formatUsageAndCostForSingleModel(
+    usage: NormalizedUsage,
     config: Config
-    toolCallCount: number
-}): void {
-    const { ok, usage, startTime, config, toolCallCount } = status
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
+) {
+    const withNumSeps = (n: number) => n.toLocaleString('en-US')
 
-    const fn = (n: number) => n.toLocaleString('en-US')
+    let firstLine: string = ''
+    let cost: number
 
-    // 第一行：生成完成提示、基本信息
-    const gateway = getModelGateway(config, config.model)
+    if (usage.model) {
+        const modelId = usage.model
+        const gateway = getModelGateway(config, modelId)
 
-    let firstLine = ok
-        ? chalk.green('✔ Generation completed.')
-        : chalk.bold.red('× Generation failed')
-    firstLine +=
-        chalk.white('  ·  Model: ') +
-        chalk.magenta(config.model) +
-        chalk.white('  ·  Provider: ') +
-        chalk.magenta(gateway.providerName)
+        cost = computeTokenCostCNY(usage, gateway.pricing)
 
-    console.info(firstLine)
+        firstLine +=
+            chalk.white('Model: ') +
+            chalk.magenta(modelId) +
+            chalk.white('  ·  Provider: ') +
+            chalk.magenta(gateway.providerName)
+    } else {
+        firstLine += 'Model: ' + chalk.gray('(unknown)')
 
-    // 第二行：Token 总计与分类
+        cost = computeTokenCostCNY(usage, usage.model)
+    }
+
+    const costPart = isNaN(cost)
+        ? ''
+        : ' (' + chalk.red(`¥${cost.toFixed(6)}`) + ')'
     const cachedPart = usage.cached
-        ? ' (' + chalk.gray('cached ') + chalk.gray(fn(usage.cached)) + ') '
+        ? ' (' +
+          chalk.gray('cached ') +
+          chalk.gray(withNumSeps(usage.cached)) +
+          ') '
         : ''
     const reasoningTokens = usage.thinking
     const thinkingPart = reasoningTokens
         ? ' (' +
           chalk.magenta('thinking ') +
-          chalk.magenta(fn(reasoningTokens)) +
+          chalk.magenta(withNumSeps(reasoningTokens)) +
           ')'
         : ''
-    console.info(
+    const secondLine =
         chalk.white.bold('Total tokens: ') +
-            chalk.yellow(fn(usage.input + usage.output)) +
-            chalk.italic(
-                '  ·  input for ' +
-                    chalk.blue(fn(usage.input)) +
-                    cachedPart +
-                    ', output for ' +
-                    chalk.blue(fn(usage.output)) +
-                    thinkingPart
-            )
-    )
+        chalk.yellow(withNumSeps(usage.input + usage.output)) +
+        costPart +
+        chalk.italic(
+            '  ·  input for ' +
+                chalk.blue(withNumSeps(usage.input)) +
+                cachedPart +
+                ', output for ' +
+                chalk.blue(withNumSeps(usage.output)) +
+                thinkingPart
+        )
+    return [firstLine, secondLine]
+}
+
+export function printFinalStatus(status: {
+    ok: boolean
+    usages: NormalizedUsage[]
+    startTime: number
+    config: Config
+    toolCallCount: number
+    totalCost: number
+}): void {
+    const { ok, usages, startTime, config, toolCallCount, totalCost } = status
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
+
+    // 第一行：生成完成提示
+    let firstLine = ok
+        ? chalk.green('✔ Generation completed.')
+        : chalk.bold.red('× Generation failed')
+
+    firstLine += ' Usage details are belows:'
+
+    console.info(firstLine)
+
+    // 第二行：Token 总计与分类
+    const secondLine = usages
+        .map((u, i) =>
+            formatUsageAndCostForSingleModel(u, config)
+                .map((text, j) =>
+                    j === 0 ? `${i + 1}. ${text}` : `   ${text}`
+                )
+                .join('\n')
+        )
+        .join('\n')
+    console.info(secondLine)
 
     // 第三行：时间、预估花费（如果有）、工具调用次数（如果有）
-
     let thirdLine = chalk.white('Elapsed time: ') + chalk.green(`${elapsed}s`)
 
-    const cost = computeTokenCostCNY(usage, gateway.pricing || config.model)
-
-    if (!isNaN(cost)) {
-        thirdLine +=
-            '  ·  ' +
-            chalk.white('Estimated cost: ') +
-            chalk.red(`¥${cost.toFixed(6)}`)
-    }
+    thirdLine +=
+        '  ·  ' +
+        chalk.white('Total cost: ') +
+        chalk.red(`¥${totalCost.toFixed(6)}`)
 
     if (toolCallCount > 0) {
         thirdLine +=

@@ -4,7 +4,7 @@ import { writeFile } from 'fs/promises'
 import { getModelGateway, type Config } from './config'
 import { ChatFile } from './fileobj'
 
-import { mergeNormalizedUsage, type NormalizedUsage } from './common/usage'
+import { mergeNormalizedUsages, type NormalizedUsage } from './common/usage'
 import { defaultSystemPrompt } from './common/prompt'
 import { ToolRunner } from './tools/runner'
 import {
@@ -22,6 +22,7 @@ import type {
 import type { FinishReason } from './types/chat-file'
 import type { APIAdapter, StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
+import { computeTokenCostCNY } from './common/pricing'
 
 function processFinishReason(finishReason: FinishReason): void {
     switch (finishReason) {
@@ -43,12 +44,25 @@ function processFinishReason(finishReason: FinishReason): void {
             throw new TypeError(`unkonwn finish reason: ${finishReason}`)
     }
 }
+function computeTotalCost(usages: NormalizedUsage[], config: Config) {
+    let total: number = 0
+    for (const usage of usages) {
+        const pricing = usage.model
+            ? getModelGateway(config, usage.model).pricing
+            : usage.model
+        const cost = computeTokenCostCNY(usage, pricing)
+        if (!isNaN(cost)) {
+            total += cost
+        }
+    }
+    return total
+}
 
 export class ChatSession {
     private config: Config
     private file: ChatFile
     private toolRunner: ToolRunner
-    private sumUsage: NormalizedUsage
+    private sumUsages: NormalizedUsage[]
     private sumToolCall = 0
     private startTime: number
     private reporter: ProgressReporter
@@ -66,7 +80,7 @@ export class ChatSession {
         this.reporter = new ProgressReporter('Requesting...')
         this.toolRunner = new ToolRunner(this)
 
-        this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
+        this.sumUsages = []
 
         const gateway = getModelGateway(this.config, this.config.model)
         this.api = createAPIAdapter(gateway.endpointType)
@@ -218,7 +232,10 @@ export class ChatSession {
                     this.stop = true
                 }
                 if (msg.usage) {
-                    this.addUsageRecord(msg.usage)
+                    this.addUsageRecord({
+                        model: this.config.model,
+                        ...msg.usage,
+                    })
                 }
                 break
             }
@@ -240,9 +257,10 @@ export class ChatSession {
         printFinalStatus({
             ok: !error,
             startTime: this.startTime,
-            usage: this.sumUsage,
+            usages: this.sumUsages,
             toolCallCount: this.sumToolCall,
             config: this.config,
+            totalCost: computeTotalCost(this.sumUsages, this.config),
         })
 
         this.toolRunner.close()
@@ -342,7 +360,10 @@ export class ChatSession {
                                 reasoning_tokens: msg.usage.thinking,
                             },
                         }
-                        this.addUsageRecord(msg.usage)
+                        this.addUsageRecord({
+                            model: request.model,
+                            ...msg.usage,
+                        })
                     }
                     break
             }
@@ -356,7 +377,6 @@ export class ChatSession {
     }
 
     private addUsageRecord(usage: NormalizedUsage) {
-        this.reporter.clear()
-        this.sumUsage = mergeNormalizedUsage(this.sumUsage, usage)
+        this.sumUsages = mergeNormalizedUsages(this.sumUsages, usage)
     }
 }

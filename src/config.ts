@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
 import { join, dirname } from 'path'
 import { printWarningMessage } from './tui'
 import type { Pricing } from './common/pricing'
+import { modelOfficalPricing } from './common/data/model-pricing'
 
 export interface ModelConfig {
     alias?: string
@@ -34,6 +35,7 @@ export interface Config {
 }
 
 export interface ModelGateway {
+    id: string
     providerName: string
     endpoint: string
     endpointType: Provider['type']
@@ -45,6 +47,7 @@ export interface ModelGateway {
 export function getModelGateway(config: Config, model: string): ModelGateway {
     if (config.endpoint && config.apikey) {
         return {
+            id: model,
             providerName: config.endpoint,
             endpoint: config.endpoint,
             apikey: config.apikey,
@@ -67,6 +70,7 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
             }
 
             const gateway: ReturnType<typeof getModelGateway> = {
+                id: model,
                 providerName: provider.name || provider.endpoint,
                 endpoint: provider.endpoint,
                 apikey: provider.apikey,
@@ -74,7 +78,7 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
                 model: modelId,
             }
 
-            gateway.pricing = modelConf.pricing
+            gateway.pricing = modelConf.pricing || modelOfficalPricing[modelId]
 
             return gateway
         }

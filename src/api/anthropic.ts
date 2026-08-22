@@ -17,9 +17,7 @@ import type {
     AnthropicRequest,
     AnthropicStreamEvent,
     AnthropicToolDefinition,
-    AnthropicUsage,
 } from '../types/apis/anthropic-api'
-import { mergeNormalizedUsage, type NormalizedUsage } from '../common/usage'
 
 // ======================== HTTP 层 ========================
 
@@ -129,12 +127,6 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
     private toolDefitions: ToolDefinition[] = []
-    private sumUsage: NormalizedUsage = {
-        input: 0,
-        output: 0,
-        cached: 0,
-        thinking: 0,
-    }
 
     public async whenParsedChat({
         messages,
@@ -200,9 +192,22 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
 
         switch (event.type) {
             case 'ping':
-            case 'message_start':
                 return
-
+            case 'message_start': {
+                const usage = event.message.usage
+                await emit({
+                    type: 'response-end',
+                    usage: {
+                        input: usage.input_tokens,
+                        output: usage.output_tokens,
+                        cached:
+                            (usage.cache_read_input_tokens ?? 0) +
+                            (usage.cache_creation_input_tokens ?? 0),
+                        thinking: 0,
+                    },
+                })
+                return
+            }
             case 'content_block_start': {
                 const block = event.content_block
                 if (block.type === 'tool_use') {
@@ -287,11 +292,17 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                     })
                 }
                 if (event.usage) {
-                    this.addUsageRecord({
-                        input_tokens: 0,
-                        output_tokens: event.usage.output_tokens,
+                    // TODO: check the real usage structure
+
+                    await emit({
+                        type: 'response-end',
+                        usage: {
+                            input: 0,
+                            output: event.usage.output_tokens,
+                            cached: 0,
+                            thinking: 0,
+                        },
                     })
-                    await emit({ type: 'response-end', usage: this.sumUsage })
                 }
                 return
             }
@@ -347,16 +358,5 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
             default:
                 return stopReason as FinishReason
         }
-    }
-
-    private addUsageRecord(usage: AnthropicUsage) {
-        this.sumUsage = mergeNormalizedUsage(this.sumUsage, {
-            input: usage.input_tokens,
-            output: usage.output_tokens,
-            cached:
-                (usage.cache_read_input_tokens ?? 0) +
-                (usage.cache_creation_input_tokens ?? 0),
-            thinking: 0,
-        })
     }
 }

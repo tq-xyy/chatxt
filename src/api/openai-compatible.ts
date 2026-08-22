@@ -15,7 +15,7 @@ import type {
     Usage,
 } from '../types/apis/openai-compatible-api'
 import type { SSEMessage } from '../utils/sseStream'
-import { mergeNormalizedUsage, type NormalizedUsage } from '../common/usage'
+import type { NormalizedUsage } from '../common/usage'
 
 export async function chatCompletion(
     request: ChatCompletionRequest,
@@ -101,12 +101,6 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
     private toolDefitions: ToolDefinition[] = []
-    private sumUsage: NormalizedUsage = {
-        input: 0,
-        output: 0,
-        cached: 0,
-        thinking: 0,
-    }
 
     public async whenParsedChat({
         messages,
@@ -201,10 +195,9 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
     ) {
         const chunk = message.data
         if (chunk.usage) {
-            this.addUsageRecord(chunk.usage)
             await emit({
                 type: 'response-end',
-                usage: this.sumUsage,
+                usage: normalizeUsage(chunk.usage),
             })
         }
 
@@ -272,17 +265,11 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
                 await emit({ type: 'function-call-end', toolCalls })
             }
         } else if (choice.finish_reason) {
+            this.outputFlag = 'UNKNOWN'
             await emit({
                 type: 'response-end',
                 finishReason: choice.finish_reason,
             })
         }
-    }
-
-    private addUsageRecord(usage: Usage) {
-        this.sumUsage = mergeNormalizedUsage(
-            this.sumUsage,
-            normalizeUsage(usage)
-        )
     }
 }

@@ -14,9 +14,7 @@ import type {
     ResponsesRequest,
     ResponsesStreamEvent,
     ResponsesToolDefinition,
-    ResponsesUsage,
 } from '../types/apis/openai-responses-api'
-import { mergeNormalizedUsage, type NormalizedUsage } from '../common/usage'
 import { mergeToolCallChunks } from './openai-compatible'
 
 // ======================== HTTP 层 ========================
@@ -120,12 +118,7 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
     private toolDefitions: ToolDefinition[] = []
-    private sumUsage: NormalizedUsage = {
-        input: 0,
-        output: 0,
-        cached: 0,
-        thinking: 0,
-    }
+
     /** 记录已 emit function-call-end 的 output_index，避免重复 */
     private endedToolCallIndexes = new Set<number>()
 
@@ -168,11 +161,9 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
 
         if (config.thinkingEffort) {
             reqBody.reasoning = {
-                effort: config.thinkingEffort as ResponsesRequest['reasoning'] extends infer R
-                    ? R extends { effort?: unknown }
-                        ? NonNullable<R['effort']>
-                        : never
-                    : never,
+                effort: config.thinkingEffort as NonNullable<
+                    ResponsesRequest['reasoning']
+                >['effort'],
             }
         }
 
@@ -309,8 +300,19 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
 
             case 'response.completed': {
                 if (event.response.usage) {
-                    this.addUsageRecord(event.response.usage)
-                    await emit({ type: 'response-end', usage: this.sumUsage })
+                    const usage = event.response.usage
+                    await emit({
+                        type: 'response-end',
+                        usage: {
+                            input: usage.input_tokens,
+                            output: usage.output_tokens,
+                            cached:
+                                usage.input_tokens_details?.cached_tokens ?? 0,
+                            thinking:
+                                usage.output_tokens_details
+                                    ?.reasoning_tokens ?? 0,
+                        },
+                    })
                 }
                 // 判断是否因工具调用结束（output 含 function_call 但未 emit end）
                 const hasFunctionCall = event.response.output.some(
@@ -332,14 +334,5 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     `OpenAI Responses API error: ${event.error.message}`
                 )
         }
-    }
-
-    private addUsageRecord(usage: ResponsesUsage) {
-        this.sumUsage = mergeNormalizedUsage(this.sumUsage, {
-            input: usage.input_tokens,
-            output: usage.output_tokens,
-            cached: usage.input_tokens_details?.cached_tokens ?? 0,
-            thinking: usage.output_tokens_details?.reasoning_tokens ?? 0,
-        })
     }
 }
