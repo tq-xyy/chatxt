@@ -28,22 +28,35 @@ async function testPrompt({
     const files = await readdir(TESTS_DIR)
     const testFiles = files.filter(f => f.endsWith('.txt')).sort()
 
+    const model = 'hy3'
+
     const results = await Promise.all(
         testFiles.map(async file => {
             const input = await readFile(path.join(TESTS_DIR, file), 'utf-8')
             const startTime = performance.now()
             const json = await chatCompletion({
+                model,
                 messages: [
                     { role: 'system', content: prompt },
                     { role: 'user', content: input },
                 ],
-                thinking: { type: thinking },
+                thinking: { type: thinking as any },
                 reasoning_effort: thinking_effort as
                     'high' | 'max' | undefined,
             })
             const output = json.choices[0]?.message?.content ?? ''
             const generation_time = performance.now() - startTime
-            return { test_id: file, input, output, generation_time }
+            return {
+                test_id: file,
+                input,
+                output,
+                reasoning:
+                    json.choices[0].message.reasoning ||
+                    json.choices[0].message.reasoning_content ||
+                    null,
+                generation_time,
+                model,
+            }
         })
     )
     return results
@@ -80,7 +93,8 @@ serveAsTool(
             properties: {
                 thinking: {
                     type: 'string',
-                    description: '思考模式，默认为 enabled',
+                    description:
+                        '思考模式，默认为 enabled, 可选 enabled 和 disabled',
                 },
                 thinking_effort: {
                     type: 'string',
@@ -101,8 +115,9 @@ serveAsTool(
                     description: '要暂存的提示词',
                 },
                 thinking: {
-                    type: 'boolean',
-                    description: '是否开启思考模式，默认 true',
+                    type: 'string',
+                    description:
+                        '思考模式，默认为 enabled, 可选 enabled 和 disabled',
                 },
                 thinking_effort: {
                     type: 'string',
