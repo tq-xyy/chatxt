@@ -57,17 +57,11 @@ function formatUsageAndCostForSingleModel(
         ? ''
         : ' (' + chalk.red(`¥${cost.toFixed(6)}`) + ')'
     const cachedPart = usage.cached
-        ? ' (' +
-          chalk.gray('cached ') +
-          chalk.gray(withNumSeps(usage.cached)) +
-          ') '
+        ? ` (${chalk.gray('cached ' + withNumSeps(usage.cached))}, ${((usage.cached / usage.input) * 100).toFixed(1)}%) `
         : ''
     const reasoningTokens = usage.thinking
     const thinkingPart = reasoningTokens
-        ? ' (' +
-          chalk.magenta('thinking ') +
-          chalk.magenta(withNumSeps(reasoningTokens)) +
-          ')'
+        ? ` (${chalk.magenta('thinking ' + withNumSeps(reasoningTokens))}, ${((usage.thinking / usage.output) * 100).toFixed(1)}%)`
         : ''
     const secondLine =
         chalk.white.bold('Total tokens: ') +
@@ -106,9 +100,9 @@ export function printFinalStatus({
     if (status === 'ok') {
         firstLine += chalk.green('✔ Generation completed.')
     } else if (status === 'error') {
-        firstLine += chalk.bold.red('× Generation failed')
+        firstLine += chalk.bold.red('× Generation failed.')
     } else if (status === 'ctrl-c') {
-        firstLine += chalk.red('⏹ Generation canceled by user')
+        firstLine += chalk.red('⏹ Generation canceled by user.')
     }
 
     if (usages.length > 0) {
