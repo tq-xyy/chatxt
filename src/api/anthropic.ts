@@ -209,12 +209,16 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                 return
             case 'message_start': {
                 const usage = event.message.usage
+                // DeepSeek Anthropic 网关语义：input_tokens 仅含未缓存新增部分，
+                // cache_read/cache_creation 是缓存命中的历史部分。
+                // 总输入 = input_tokens + cache_creation + cache_read。
+                const cachedParts =
+                    (usage.cache_read_input_tokens ?? 0) +
+                    (usage.cache_creation_input_tokens ?? 0)
                 this.sumUsage = {
-                    input: usage.input_tokens,
+                    input: usage.input_tokens + cachedParts,
                     output: usage.output_tokens,
-                    cached:
-                        (usage.cache_read_input_tokens ?? 0) +
-                        (usage.cache_creation_input_tokens ?? 0),
+                    cached: cachedParts,
                     thinking: 0,
                 }
                 return

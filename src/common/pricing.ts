@@ -43,8 +43,8 @@ export function computeTokenCostCNY(
     tokenUsage: NormalizedUsage,
     pricing: string | Pricing | Pricing[] | undefined
 ): number {
-    const { input, output, cached } = tokenUsage
-    const cachedInput = cached ?? 0
+    const { input, output } = tokenUsage
+    const cachedInput = Math.min(tokenUsage.cached ?? 0, input)
     const nonCachedInput = input - cachedInput
 
     if (typeof pricing === 'string') {

@@ -57,7 +57,10 @@ function formatUsageAndCostForSingleModel(
         ? ''
         : ' (' + chalk.red(`¥${cost.toFixed(6)}`) + ')'
     const cachedPart = usage.cached
-        ? ` (${chalk.gray('cached ' + withNumSeps(usage.cached))}, ${((usage.cached / usage.input) * 100).toFixed(1)}%) `
+        ? ` (${chalk.gray('cached ' + withNumSeps(usage.cached))}, ${Math.min(
+              (usage.cached / usage.input) * 100,
+              100
+          ).toFixed(1)}%) `
         : ''
     const reasoningTokens = usage.thinking
     const thinkingPart = reasoningTokens
