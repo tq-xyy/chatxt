@@ -84,23 +84,36 @@ function formatUsageAndCostForSingleModel(
     return [firstLine, secondLine]
 }
 
-export function printFinalStatus(status: {
-    ok: boolean
+export function printFinalStatus({
+    status,
+    usages,
+    startTime,
+    config,
+    toolCallCount,
+    totalCost,
+}: {
+    status: 'ok' | 'error' | 'ctrl-c'
     usages: NormalizedUsage[]
     startTime: number
     config: Config
     toolCallCount: number
     totalCost: number
 }): void {
-    const { ok, usages, startTime, config, toolCallCount, totalCost } = status
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
 
     // 第一行：生成完成提示
-    let firstLine = ok
-        ? chalk.green('✔ Generation completed.')
-        : chalk.bold.red('× Generation failed')
+    let firstLine = ''
+    if (status === 'ok') {
+        firstLine += chalk.green('✔ Generation completed.')
+    } else if (status === 'error') {
+        firstLine += chalk.bold.red('× Generation failed')
+    } else if (status === 'ctrl-c') {
+        firstLine += chalk.red('⏹ Generation canceled by user')
+    }
 
-    firstLine += ' Usage details are belows:'
+    if (usages.length > 0) {
+        firstLine += ' Usage details are belows:'
+    }
 
     console.info(firstLine)
 
@@ -114,15 +127,20 @@ export function printFinalStatus(status: {
                 .join('\n')
         )
         .join('\n')
-    console.info(secondLine)
+
+    if (usages.length > 0) {
+        console.info(secondLine)
+    }
 
     // 第三行：时间、预估花费（如果有）、工具调用次数（如果有）
     let thirdLine = chalk.white('Elapsed time: ') + chalk.green(`${elapsed}s`)
 
-    thirdLine +=
-        '  ·  ' +
-        chalk.white('Total cost: ') +
-        chalk.red(`¥${totalCost.toFixed(6)}`)
+    if (totalCost > 0) {
+        thirdLine +=
+            '  ·  ' +
+            chalk.white('Total cost: ') +
+            chalk.red(`¥${totalCost.toFixed(6)}`)
+    }
 
     if (toolCallCount > 0) {
         thirdLine +=

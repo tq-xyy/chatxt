@@ -103,6 +103,12 @@ export class ChatSession {
             return
         }
 
+        process.on('SIGINT', async () => {
+            this.stop = true
+            await this.checkFinish('ctrl-c')
+            process.exit(0)
+        })
+
         try {
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
@@ -155,11 +161,11 @@ export class ChatSession {
                     }
                 }
             }
-            await this.checkFinish()
+            await this.checkFinish('ok')
         } catch (err) {
             this.stop = true
             printExceptionMessage(err)
-            await this.checkFinish(err as Error)
+            await this.checkFinish('error')
         }
     }
 
@@ -222,7 +228,7 @@ export class ChatSession {
                     this.api.whenRecvivedChunk(message, this.onEmit.bind(this))
                 }
 
-                await this.checkFinish()
+                await this.checkFinish('ok')
                 break
             }
 
@@ -242,12 +248,12 @@ export class ChatSession {
         }
     }
 
-    private async checkFinish(error?: Error) {
+    private async checkFinish(status: 'ok' | 'error' | 'ctrl-c') {
         if (!this.stop) {
             return
         }
 
-        if (!error) {
+        if (status === 'ok') {
             this.file.appendRoleLine('USER')
         }
         await this.file.flushBuffer()
@@ -255,7 +261,7 @@ export class ChatSession {
         this.reporter.close()
 
         printFinalStatus({
-            ok: !error,
+            status,
             startTime: this.startTime,
             usages: this.sumUsages,
             toolCallCount: this.sumToolCall,
