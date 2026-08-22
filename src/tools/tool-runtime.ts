@@ -4,8 +4,8 @@ import type {
     ExitMessage,
 } from './ipc-types'
 import type {
-    ChatCompletionRequest,
-    ChatCompletionResponse,
+    OpenAICompatibleRequest,
+    OpenAICompatibleResponse,
 } from '../types/apis/openai-compatible-api'
 
 type ToolFunction = (...args: unknown[]) => unknown
@@ -112,13 +112,13 @@ function serveAsTool(
 }
 
 async function chatCompletion(
-    request: ChatCompletionRequest
-): Promise<ChatCompletionResponse> {
+    request: OpenAICompatibleRequest
+): Promise<OpenAICompatibleResponse> {
     const id = String(++nextChatId)
     return new Promise((resolve, reject) => {
         pendingChats.set(id, {
             resolve(value) {
-                resolve(value as ChatCompletionResponse)
+                resolve(value as OpenAICompatibleResponse)
             },
             reject,
         })

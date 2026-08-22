@@ -6,7 +6,6 @@ import type {
     Message,
     SystemMessage,
     ToolCall,
-    ToolCallChunk,
     ToolDefinition,
     ToolMessage,
 } from '../types/chat-file'
@@ -18,6 +17,15 @@ import type {
     AnthropicStreamEvent,
     AnthropicToolDefinition,
 } from '../types/apis/anthropic-api'
+import type { NormalizedUsage } from '../common/usage'
+
+/** Anthropic 内部累积的工具调用分片（用于挂载 lastMessage.tool_calls） */
+type ToolCallChunk = {
+    index: number
+    id?: string
+    name?: string
+    arguments: string
+}
 
 // ======================== HTTP 层 ========================
 
@@ -127,6 +135,12 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
     private toolDefitions: ToolDefinition[] = []
+    private sumUsage: NormalizedUsage = {
+        input: 0,
+        output: 0,
+        cached: 0,
+        thinking: 0,
+    }
 
     public async whenParsedChat({
         messages,
@@ -195,17 +209,14 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                 return
             case 'message_start': {
                 const usage = event.message.usage
-                await emit({
-                    type: 'response-end',
-                    usage: {
-                        input: usage.input_tokens,
-                        output: usage.output_tokens,
-                        cached:
-                            (usage.cache_read_input_tokens ?? 0) +
-                            (usage.cache_creation_input_tokens ?? 0),
-                        thinking: 0,
-                    },
-                })
+                this.sumUsage = {
+                    input: usage.input_tokens,
+                    output: usage.output_tokens,
+                    cached:
+                        (usage.cache_read_input_tokens ?? 0) +
+                        (usage.cache_creation_input_tokens ?? 0),
+                    thinking: 0,
+                }
                 return
             }
             case 'content_block_start': {
@@ -215,16 +226,21 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                         this.outputFlag = 'TOOL'
                         await emit({ type: 'function-call-start' })
                     }
-                    const chunk: ToolCallChunk = {
+                    this.toolCallChunks.push({
                         index: event.index,
                         id: block.id,
-                        type: 'function',
-                        function: { name: block.name, arguments: '' },
-                    }
-                    this.toolCallChunks.push(chunk)
+                        name: block.name,
+                        arguments: '',
+                    })
                     await emit({
                         type: 'function-call-delta',
-                        toolCallChunk: chunk,
+                        delta: {
+                            type: 'callee',
+                            index: event.index,
+                            callee: block.name,
+                            callId: block.id,
+                            arguments: '',
+                        },
                     })
                 }
                 return
@@ -257,14 +273,17 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                         this.outputFlag = 'TOOL'
                         await emit({ type: 'function-call-start' })
                     }
-                    const chunk: ToolCallChunk = {
+                    this.toolCallChunks.push({
                         index: event.index,
-                        function: { arguments: delta.partial_json },
-                    }
-                    this.toolCallChunks.push(chunk)
+                        arguments: delta.partial_json,
+                    })
                     await emit({
                         type: 'function-call-delta',
-                        toolCallChunk: chunk,
+                        delta: {
+                            type: 'arguments',
+                            index: event.index,
+                            delta: delta.partial_json,
+                        },
                     })
                 }
                 return
@@ -274,6 +293,14 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                 return
 
             case 'message_delta': {
+                // 最终 usage：input 已在 message_start 记录，此处更新 output
+                if (event.usage) {
+                    this.sumUsage = {
+                        ...this.sumUsage,
+                        output: event.usage.output_tokens,
+                    }
+                }
+
                 const stopReason = event.delta.stop_reason
                 if (stopReason === 'tool_use') {
                     const lastMessage = this.messages.at(-1)
@@ -283,25 +310,13 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                     this.outputFlag = 'UNKNOWN'
                     await emit({
                         type: 'function-call-end',
-                        toolCalls: this.mergeToolCalls(),
                     })
                 } else if (stopReason) {
+                    this.outputFlag = 'UNKNOWN'
                     await emit({
                         type: 'response-end',
                         finishReason: this.mapStopReason(stopReason),
-                    })
-                }
-                if (event.usage) {
-                    // TODO: check the real usage structure
-
-                    await emit({
-                        type: 'response-end',
-                        usage: {
-                            input: 0,
-                            output: event.usage.output_tokens,
-                            cached: 0,
-                            thinking: 0,
-                        },
+                        usage: this.sumUsage,
                     })
                 }
                 return
@@ -320,15 +335,14 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
     private mergeToolCalls(): ToolCall[] {
         const toolCallList: ToolCall[] = []
         for (const chunk of this.toolCallChunks) {
-            if (chunk.function.name) {
-                // 复制对象，避免累加时污染 this.toolCallChunks
+            if (chunk.name) {
                 toolCallList.push({
                     index: chunk.index,
                     id: chunk.id!,
                     type: 'function',
                     function: {
-                        name: chunk.function.name,
-                        arguments: chunk.function.arguments,
+                        name: chunk.name,
+                        arguments: chunk.arguments,
                     },
                 })
             } else {
@@ -340,8 +354,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                         `unexcepted tool call index: ${chunk.index}`
                     )
                 }
-                toolCallList[index].function.arguments +=
-                    chunk.function.arguments
+                toolCallList[index].function.arguments += chunk.arguments
             }
         }
         return toolCallList
@@ -355,6 +368,8 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
                 return 'length'
             case 'stop_sequence':
                 return 'stop'
+            case 'tool_use':
+                return 'tool_calls'
             default:
                 return stopReason as FinishReason
         }

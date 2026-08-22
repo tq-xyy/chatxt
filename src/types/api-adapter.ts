@@ -4,9 +4,8 @@ import type {
     SystemMessage,
     ToolDefinition,
     ToolMessage,
-    ToolCall,
-    ToolCallChunk,
     FinishReason,
+    ToolCallDelta,
 } from './chat-file'
 import type { SSEMessage } from '../utils/sseStream'
 
@@ -47,12 +46,11 @@ interface FunctionCallStartEvent {
 interface FunctionCallDeltaEvent {
     type: 'function-call-delta'
     /** only for display */
-    toolCallChunk: ToolCallChunk
+    delta: ToolCallDelta
 }
 
 interface FunctionCallEndEvent {
     type: 'function-call-end'
-    toolCalls: ToolCall[]
 }
 
 interface ResponseEndEvent {

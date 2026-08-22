@@ -1,6 +1,6 @@
 import type {
-    ChatCompletionRequest,
-    ChatCompletionResponse,
+    OpenAICompatibleRequest,
+    OpenAICompatibleResponse,
 } from '../types/apis/openai-compatible-api'
 
 export {}
@@ -14,8 +14,8 @@ declare global {
     ): void
 
     function chatCompletion(
-        request: Partial<ChatCompletionRequest>
-    ): Promise<ChatCompletionResponse>
+        request: Partial<OpenAICompatibleRequest>
+    ): Promise<OpenAICompatibleResponse>
 
     function ToJSONSchema(
         argsDefs: [

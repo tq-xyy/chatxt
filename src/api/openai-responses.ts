@@ -4,7 +4,7 @@ import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type {
     Message,
     SystemMessage,
-    ToolCallChunk,
+    ToolCall,
     ToolDefinition,
     ToolMessage,
 } from '../types/chat-file'
@@ -14,8 +14,17 @@ import type {
     ResponsesRequest,
     ResponsesStreamEvent,
     ResponsesToolDefinition,
+    ResponsesUsage,
 } from '../types/apis/openai-responses-api'
-import { mergeToolCallChunks } from './openai-compatible'
+import { mergeNormalizedUsages, type NormalizedUsage } from '../common/usage'
+
+/** Responses 内部累积的工具调用分片（用于挂载 lastMessage.tool_calls） */
+type ToolCallChunk = {
+    index: number
+    id?: string
+    name?: string
+    arguments: string
+}
 
 // ======================== HTTP 层 ========================
 
@@ -118,6 +127,12 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
     private toolDefitions: ToolDefinition[] = []
+    private sumUsage: NormalizedUsage = {
+        input: 0,
+        output: 0,
+        cached: 0,
+        thinking: 0,
+    }
 
     /** 记录已 emit function-call-end 的 output_index，避免重复 */
     private endedToolCallIndexes = new Set<number>()
@@ -206,28 +221,36 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                         this.outputFlag = 'TOOL'
                         await emit({ type: 'function-call-start' })
                     }
-                    const chunk: ToolCallChunk = {
+                    this.toolCallChunks.push({
                         index: event.output_index,
                         id: item.call_id,
-                        type: 'function',
-                        function: { name: item.name, arguments: '' },
-                    }
-                    this.toolCallChunks.push(chunk)
+                        name: item.name,
+                        arguments: '',
+                    })
                     await emit({
                         type: 'function-call-delta',
-                        toolCallChunk: chunk,
+                        delta: {
+                            type: 'callee',
+                            index: event.output_index,
+                            callee: item.name,
+                            callId: item.call_id,
+                            arguments: '',
+                        },
                     })
 
                     // 此网关一次性给出完整 arguments
                     if (item.arguments) {
-                        const argChunk: ToolCallChunk = {
+                        this.toolCallChunks.push({
                             index: event.output_index,
-                            function: { arguments: item.arguments },
-                        }
-                        this.toolCallChunks.push(argChunk)
+                            arguments: item.arguments,
+                        })
                         await emit({
                             type: 'function-call-delta',
-                            toolCallChunk: argChunk,
+                            delta: {
+                                type: 'arguments',
+                                index: event.output_index,
+                                delta: item.arguments,
+                            },
                         })
                     }
                 }
@@ -250,14 +273,17 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     this.outputFlag = 'TOOL'
                     await emit({ type: 'function-call-start' })
                 }
-                const chunk: ToolCallChunk = {
+                this.toolCallChunks.push({
                     index: event.output_index,
-                    function: { arguments: event.delta },
-                }
-                this.toolCallChunks.push(chunk)
+                    arguments: event.delta,
+                })
                 await emit({
                     type: 'function-call-delta',
-                    toolCallChunk: chunk,
+                    delta: {
+                        type: 'arguments',
+                        index: event.output_index,
+                        delta: event.delta,
+                    },
                 })
                 return
             }
@@ -283,7 +309,7 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     }
                     this.endedToolCallIndexes.add(event.output_index)
 
-                    const toolCalls = mergeToolCallChunks(this.toolCallChunks)
+                    const toolCalls = this.mergeToolCalls()
 
                     const lastMessage = this.messages.at(-1)
                     if (lastMessage?.role === 'assistant') {
@@ -292,35 +318,31 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     this.outputFlag = 'UNKNOWN'
                     await emit({
                         type: 'function-call-end',
-                        toolCalls,
                     })
                 }
                 return
             }
 
             case 'response.completed': {
-                if (event.response.usage) {
-                    const usage = event.response.usage
-                    await emit({
-                        type: 'response-end',
-                        usage: {
-                            input: usage.input_tokens,
-                            output: usage.output_tokens,
-                            cached:
-                                usage.input_tokens_details?.cached_tokens ?? 0,
-                            thinking:
-                                usage.output_tokens_details
-                                    ?.reasoning_tokens ?? 0,
-                        },
-                    })
-                }
-                // 判断是否因工具调用结束（output 含 function_call 但未 emit end）
                 const hasFunctionCall = event.response.output.some(
                     item => item.type === 'function_call'
                 )
-                if (!hasFunctionCall) {
-                    await emit({ type: 'response-end', finishReason: 'stop' })
+                if (hasFunctionCall) {
+                    // function-call-end 已触发下一轮，此处不再发 response-end
+                    if (event.response.usage) {
+                        this.addUsageRecord(event.response.usage)
+                    }
+                    return
                 }
+                if (event.response.usage) {
+                    this.addUsageRecord(event.response.usage)
+                }
+                this.outputFlag = 'UNKNOWN'
+                await emit({
+                    type: 'response-end',
+                    finishReason: 'stop',
+                    usage: this.sumUsage,
+                })
                 return
             }
 
@@ -334,5 +356,42 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     `OpenAI Responses API error: ${event.error.message}`
                 )
         }
+    }
+
+    private mergeToolCalls(): ToolCall[] {
+        const toolCallList: ToolCall[] = []
+        for (const chunk of this.toolCallChunks) {
+            if (chunk.name) {
+                toolCallList.push({
+                    index: chunk.index,
+                    id: chunk.id!,
+                    type: 'function',
+                    function: {
+                        name: chunk.name,
+                        arguments: chunk.arguments,
+                    },
+                })
+            } else {
+                const index = toolCallList.findIndex(
+                    block => block.index === chunk.index
+                )
+                if (index === -1) {
+                    throw new Error(
+                        `unexcepted tool call index: ${chunk.index}`
+                    )
+                }
+                toolCallList[index].function.arguments += chunk.arguments
+            }
+        }
+        return toolCallList
+    }
+
+    private addUsageRecord(usage: ResponsesUsage) {
+        this.sumUsage = mergeNormalizedUsages(this.sumUsage, {
+            input: usage.input_tokens,
+            output: usage.output_tokens,
+            cached: usage.input_tokens_details?.cached_tokens ?? 0,
+            thinking: usage.output_tokens_details?.reasoning_tokens ?? 0,
+        })[0]
     }
 }

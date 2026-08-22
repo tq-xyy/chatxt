@@ -16,10 +16,15 @@ import {
 import { parseSSEStream } from './utils/sseStream'
 
 import type {
-    ChatCompletionResponse,
-    ChatCompletionRequest,
+    OpenAICompatibleResponse,
+    OpenAICompatibleRequest,
 } from './types/apis/openai-compatible-api'
-import type { FinishReason } from './types/chat-file'
+import type {
+    FinishReason,
+    ToolCall,
+    ToolCallDelta,
+    ToolMessage,
+} from './types/chat-file'
 import type { APIAdapter, StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
 import { computeTokenCostCNY } from './common/pricing'
@@ -59,16 +64,20 @@ function computeTotalCost(usages: NormalizedUsage[], config: Config) {
 }
 
 export class ChatSession {
-    private config: Config
-    private file: ChatFile
-    private toolRunner: ToolRunner
+    public config: Config
+    public file: ChatFile
+    public toolRunner: ToolRunner
+    public reporter: ProgressReporter
+    public api: APIAdapter
+
     private sumUsages: NormalizedUsage[]
     private sumToolCall = 0
     private startTime: number
-    private reporter: ProgressReporter
 
-    private api: APIAdapter
-    private stop: boolean = false
+    // state
+    private shouldStop: boolean = false
+    private toolCallDeltaBuffer: ToolCallDelta[]
+    private toolMessageBuffer: ToolMessage[]
 
     constructor(
         private chatFilePath: string,
@@ -81,6 +90,8 @@ export class ChatSession {
         this.toolRunner = new ToolRunner(this)
 
         this.sumUsages = []
+        this.toolCallDeltaBuffer = []
+        this.toolMessageBuffer = []
 
         const gateway = getModelGateway(this.config, this.config.model)
         this.api = createAPIAdapter(gateway.endpointType)
@@ -104,12 +115,14 @@ export class ChatSession {
         }
 
         process.on('SIGINT', async () => {
-            this.stop = true
+            this.shouldStop = true
             await this.checkFinish('ctrl-c')
             process.exit(0)
         })
 
         try {
+            const gateway = getModelGateway(this.config, this.config.model)
+
             const { system, messages, toolPaths } =
                 await this.file.buildPrompt()
 
@@ -131,26 +144,29 @@ export class ChatSession {
             })
 
             let retryTimes: number = 0
+            this.shouldStop = false
 
-            while (true) {
+            while (!this.shouldStop) {
                 this.reporter.setPrompt('Requesting...')
-                this.reporter.update(0)
 
                 try {
                     const resp = await this.api.whenReadyToRequest(
                         this.config,
-                        getModelGateway(this.config, this.config.model)
+                        gateway,
+                        this.toolMessageBuffer
                     )
 
+                    this.toolCallDeltaBuffer = []
+                    this.toolMessageBuffer = []
+
                     for await (const message of parseSSEStream(resp)) {
-                        this.api.whenRecvivedChunk(
+                        await this.api.whenRecvivedChunk(
                             message,
                             this.onEmit.bind(this)
                         )
                     }
-
-                    break
                 } catch (err) {
+                    this.reporter.clear()
                     retryTimes += 1
                     if (retryTimes <= 3) {
                         console.log()
@@ -163,7 +179,7 @@ export class ChatSession {
             }
             await this.checkFinish('ok')
         } catch (err) {
-            this.stop = true
+            this.shouldStop = true
             printExceptionMessage(err)
             await this.checkFinish('error')
         }
@@ -202,45 +218,68 @@ export class ChatSession {
                 this.reporter.setPrompt('Generating Function Call...')
                 break
             case 'function-call-delta':
-                this.file.appendToolCallChunkToToolBlock(msg.toolCallChunk)
-                this.reporter.update(msg.toolCallChunk.function.arguments)
+                this.file.appendToolCallChunkToToolBlock(msg.delta)
+                this.toolCallDeltaBuffer.push(msg.delta)
+                this.reporter.update(
+                    msg.delta.type === 'arguments' ? msg.delta.delta : ''
+                )
                 break
             case 'function-call-end': {
-                this.sumToolCall += msg.toolCalls.length
+                const toolCalls = this.toolCallDeltaBuffer.reduce<ToolCall[]>(
+                    (calls, chunk) => {
+                        const indexedCall = calls.findIndex(
+                            call => call.index === chunk.index
+                        )
+                        if (chunk.type === 'callee' && indexedCall < 0) {
+                            calls.push({
+                                type: 'function',
+                                index: chunk.index,
+                                id: chunk.callId,
+                                function: {
+                                    name: chunk.callee,
+                                    arguments: chunk.arguments || '',
+                                },
+                            })
+                        } else if (
+                            chunk.type === 'arguments' &&
+                            indexedCall >= 0
+                        ) {
+                            calls[indexedCall].function.arguments +=
+                                chunk.delta
+                        }
+                        // ignore invaild chunks
+                        return calls
+                    },
+                    []
+                )
+                this.toolCallDeltaBuffer = []
+
+                this.sumToolCall += toolCalls.length
 
                 this.reporter.setPrompt('Call Function...')
 
-                const toolResponses = await this.toolRunner.executeAll(
-                    msg.toolCalls
-                )
+                const toolResponses =
+                    await this.toolRunner.executeAll(toolCalls)
 
                 this.file.appendToolMessagesToToolResponseBlock(toolResponses)
+                this.toolMessageBuffer.push(...toolResponses)
 
-                this.reporter.setPrompt('Requesting...')
-
-                const resp = await this.api.whenReadyToRequest(
-                    this.config,
-                    getModelGateway(this.config, this.config.model),
-                    toolResponses
-                )
-
-                for await (const message of parseSSEStream(resp)) {
-                    this.api.whenRecvivedChunk(message, this.onEmit.bind(this))
-                }
-
-                await this.checkFinish('ok')
                 break
             }
 
             case 'response-end': {
                 if (msg.finishReason) {
-                    processFinishReason(msg.finishReason)
-                    this.stop = true
+                    if (msg.finishReason === 'tool_calls') {
+                        this.shouldStop = false
+                    } else {
+                        processFinishReason(msg.finishReason)
+                        this.shouldStop = true
+                    }
                 }
                 if (msg.usage) {
                     this.addUsageRecord({
-                        model: this.config.model,
                         ...msg.usage,
+                        model: msg.usage.model ?? this.config.model,
                     })
                 }
                 break
@@ -249,7 +288,7 @@ export class ChatSession {
     }
 
     private async checkFinish(status: 'ok' | 'error' | 'ctrl-c') {
-        if (!this.stop) {
+        if (!this.shouldStop) {
             return
         }
 
@@ -273,8 +312,8 @@ export class ChatSession {
     }
 
     async subAgentChatCompletion(
-        request: ChatCompletionRequest
-    ): Promise<ChatCompletionResponse> {
+        request: OpenAICompatibleRequest
+    ): Promise<OpenAICompatibleResponse> {
         if (request.stream) {
             throw new Error(
                 'chatCompletion not support stream, please use `fetch`'
@@ -324,7 +363,7 @@ export class ChatSession {
 
         const resp = await api.whenReadyToRequest(newConfig, apiGateway)
 
-        const result: ChatCompletionResponse = {
+        const result: OpenAICompatibleResponse = {
             choices: [
                 {
                     index: 0,
@@ -352,7 +391,7 @@ export class ChatSession {
                 case 'response-end':
                     if (msg.finishReason) {
                         result.choices[0].finish_reason =
-                            msg.finishReason as ChatCompletionResponse['choices'][0]['finish_reason']
+                            msg.finishReason as OpenAICompatibleResponse['choices'][0]['finish_reason']
                     }
                     if (msg.usage) {
                         result.usage = {
@@ -367,8 +406,8 @@ export class ChatSession {
                             },
                         }
                         this.addUsageRecord({
-                            model: request.model,
                             ...msg.usage,
+                            model: msg.usage.model ?? request.model,
                         })
                     }
                     break

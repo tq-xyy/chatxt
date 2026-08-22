@@ -1,5 +1,5 @@
 import type { ToolDefinition } from '../types/chat-file'
-import type { ChatCompletionRequest } from '../types/apis/openai-compatible-api'
+import type { OpenAICompatibleRequest } from '../types/apis/openai-compatible-api'
 
 export interface RegisterMessage {
     type: 'register'
@@ -23,7 +23,7 @@ export interface ResultMessage {
 export interface ChatCompletionMessage {
     type: 'chatCompletion'
     id: string
-    request: ChatCompletionRequest
+    request: OpenAICompatibleRequest
 }
 
 export interface ChatCompletionResultMessage {

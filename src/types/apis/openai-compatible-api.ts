@@ -1,18 +1,18 @@
 // ======================== 消息类型 ========================
 
-export interface SystemMessage {
+export interface OpenAICompatibleSystemMessage {
     content: string
     role: 'system'
     name?: string
 }
 
-export interface UserMessage {
+export interface OpenAICompatibleUserMessage {
     content: string
     role: 'user'
     name?: string
 }
 
-export interface ToolCall {
+export interface OpenAICompatibleToolCall {
     index: number
     id: string
     type: 'function'
@@ -22,27 +22,30 @@ export interface ToolCall {
     }
 }
 
-export interface AssistantMessage {
+export interface OpenAICompatibleAssistantMessage {
     content: string | null // 必需，但可为 null
     role: 'assistant'
     name?: string
     reasoning_content?: string | null // deepseek, kimi
     reasoning?: string | null // hy3
-    tool_calls?: ToolCall[] | null // 可为 null
+    tool_calls?: OpenAICompatibleToolCall[] | null // 可为 null
 }
 
-export interface ToolMessage {
+export interface OpenAICompatibleToolMessage {
     content: string
     role: 'tool'
     tool_call_id: string
 }
 
-export type Message =
-    SystemMessage | UserMessage | AssistantMessage | ToolMessage
+export type OpenAICompatibleMessage =
+    | OpenAICompatibleSystemMessage
+    | OpenAICompatibleUserMessage
+    | OpenAICompatibleAssistantMessage
+    | OpenAICompatibleToolMessage
 
 // ======================== 请求参数 ========================
 
-export interface ToolDefinition {
+export interface OpenAICompatibleToolDefinition {
     type: 'function'
     function: {
         description?: string
@@ -52,8 +55,8 @@ export interface ToolDefinition {
     }
 }
 
-export interface ChatCompletionRequest {
-    messages: Message[]
+export interface OpenAICompatibleRequest {
+    messages: OpenAICompatibleMessage[]
     model: string
     thinking?: {
         type?: 'enabled' | 'disabled' | /* mimimax only */ 'adaptive'
@@ -72,7 +75,7 @@ export interface ChatCompletionRequest {
     temperature?: number
     top_p?: number
 
-    tools?: ToolDefinition[]
+    tools?: OpenAICompatibleToolDefinition[]
 }
 
 // ======================== 响应类型 ========================
@@ -84,13 +87,13 @@ export type FinishReason =
     | 'tool_calls'
     | 'insufficient_system_resource'
 
-interface Choice {
+interface OpenAICompatibleChoice {
     finish_reason: FinishReason
     index: number
-    message: AssistantMessage
+    message: OpenAICompatibleAssistantMessage
 }
 
-export interface Usage {
+export interface OpenAICompatibleUsage {
     completion_tokens: number
     prompt_tokens: number
     total_tokens: number
@@ -112,14 +115,14 @@ export interface Usage {
     }
 }
 
-export interface ChatCompletionResponse {
-    choices: Choice[]
-    usage?: Usage
+export interface OpenAICompatibleResponse {
+    choices: OpenAICompatibleChoice[]
+    usage?: OpenAICompatibleUsage
 }
 
 // ---------- 流式 chunk ----------
 
-export interface ToolCallChunk {
+export interface OpenAICompatibleToolCallChunk {
     index: number
     id?: string
     type?: 'function'
@@ -129,7 +132,7 @@ export interface ToolCallChunk {
     }
 }
 
-interface ChoiceDelta {
+interface OpenAICompatibleChoiceDelta {
     content: string // 必需，但可为 null
 
     reasoning_content?: string // deepseek, kimi
@@ -137,17 +140,17 @@ interface ChoiceDelta {
 
     role: 'assistant'
 
-    tool_calls?: ToolCallChunk[] // 可为 null
+    tool_calls?: OpenAICompatibleToolCallChunk[] // 可为 null
 }
 
-interface ChoiceChunk {
-    delta: ChoiceDelta
+interface OpenAICompatibleChoiceChunk {
+    delta: OpenAICompatibleChoiceDelta
     finish_reason: FinishReason | null
     index: number
 }
 
-export interface ChatCompletionChunk {
+export interface OpenAICompatibleChunk {
     /** 流式 200 响应中的一个 chunk */
-    choices: ChoiceChunk[]
-    usage?: Usage | null
+    choices: OpenAICompatibleChoiceChunk[]
+    usage?: OpenAICompatibleUsage | null
 }

@@ -5,7 +5,7 @@ import type {
     Message,
     SystemMessage,
     ToolCall,
-    ToolCallChunk,
+    ToolCallDelta,
     ToolMessage,
 } from './types/chat-file'
 import type { Config } from './config'
@@ -266,12 +266,14 @@ export class ChatFile {
         return toolCalls
     }
 
-    public appendToolCallChunkToToolBlock(tc: ToolCallChunk) {
-        if (tc.type === 'function' && tc.id && tc.function.name) {
-            this.appendContent(`\n${tc.function.name} (${tc.id}): `)
+    public appendToolCallChunkToToolBlock(delta: ToolCallDelta) {
+        if (delta.type === 'callee') {
+            this.appendContent(
+                `\n${delta.callee} (${delta.callId}): ${delta.arguments || ''}`
+            )
         }
-        if (tc.function.arguments?.length) {
-            this.appendContent(tc.function.arguments)
+        if (delta.type === 'arguments') {
+            this.appendContent(delta.delta)
         }
     }
 

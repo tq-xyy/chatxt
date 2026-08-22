@@ -147,6 +147,9 @@ export class ToolRunner {
             this.childRequests.set(child, new Set())
         }
         this.childRequests.get(child)!.add(requestId)
+
+        const args = JSON.parse(argsJson)
+
         return new Promise(resolve => {
             this.pendingRequests.set(requestId, {
                 resolve,
@@ -165,7 +168,7 @@ export class ToolRunner {
                 type: 'execute',
                 id: requestId,
                 toolName: name,
-                args: JSON.parse(argsJson),
+                args,
             })
         }).then(result => ({
             role: 'tool' as const,

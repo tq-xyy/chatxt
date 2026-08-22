@@ -1,13 +1,26 @@
 export type {
     FinishReason,
     // Messages
-    Message,
-    SystemMessage,
-    AssistantMessage,
-    UserMessage,
+    OpenAICompatibleMessage as Message,
+    OpenAICompatibleSystemMessage as SystemMessage,
+    OpenAICompatibleAssistantMessage as AssistantMessage,
+    OpenAICompatibleUserMessage as UserMessage,
     // Tools
-    ToolCall,
-    ToolCallChunk,
-    ToolDefinition,
-    ToolMessage,
+    OpenAICompatibleToolCall as ToolCall,
+    OpenAICompatibleToolDefinition as ToolDefinition,
+    OpenAICompatibleToolMessage as ToolMessage,
 } from './apis/openai-compatible-api'
+
+export type ToolCallDelta =
+    | {
+          type: 'callee'
+          index: number
+          callee: string
+          callId: string
+          arguments?: string
+      }
+    | {
+          type: 'arguments'
+          index: number
+          delta: string
+      }

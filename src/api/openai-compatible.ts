@@ -4,21 +4,21 @@ import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type {
     Message,
     SystemMessage,
-    ToolCallChunk,
     ToolDefinition,
     ToolMessage,
     ToolCall,
 } from '../types/chat-file'
 import type {
-    ChatCompletionChunk,
-    ChatCompletionRequest,
-    Usage,
+    OpenAICompatibleChunk,
+    OpenAICompatibleRequest,
+    OpenAICompatibleUsage,
+    OpenAICompatibleToolCallChunk,
 } from '../types/apis/openai-compatible-api'
 import type { SSEMessage } from '../utils/sseStream'
 import type { NormalizedUsage } from '../common/usage'
 
 export async function chatCompletion(
-    request: ChatCompletionRequest,
+    request: OpenAICompatibleRequest,
     api: {
         endpoint: string
         apikey: string
@@ -55,7 +55,7 @@ export async function chatCompletion(
     return resp
 }
 
-function normalizeUsage(usage: Usage): NormalizedUsage {
+function normalizeUsage(usage: OpenAICompatibleUsage): NormalizedUsage {
     return {
         input: usage.prompt_tokens,
         output: usage.completion_tokens,
@@ -68,7 +68,7 @@ function normalizeUsage(usage: Usage): NormalizedUsage {
 }
 
 export function mergeToolCallChunks(
-    toolCallChunks: ToolCallChunk[]
+    toolCallChunks: OpenAICompatibleToolCallChunk[]
 ): ToolCall[] {
     const toolCallList: ToolCall[] = []
     for (const chunk of toolCallChunks) {
@@ -96,9 +96,9 @@ export function mergeToolCallChunks(
     return toolCallList
 }
 
-export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChunk> {
+export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleChunk> {
     private outputFlag: ChatRole | boolean = 'UNKNOWN'
-    private toolCallChunks: ToolCallChunk[] = []
+    private toolCallChunks: OpenAICompatibleToolCallChunk[] = []
     private messages: Message[] = []
     private toolDefitions: ToolDefinition[] = []
 
@@ -144,7 +144,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
                 }
             })
 
-        const reqBody: ChatCompletionRequest = {
+        const reqBody: OpenAICompatibleRequest = {
             model: gateway.model,
             /* leave it default */
             // thinking: { type: 'enabled' },
@@ -157,14 +157,14 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
         if (config.thinkingMode) {
             reqBody.thinking = {
                 type: config.thinkingMode as NonNullable<
-                    ChatCompletionRequest['thinking']
+                    OpenAICompatibleRequest['thinking']
                 >['type'],
             }
         }
 
         if (config.thinkingEffort) {
             reqBody.reasoning_effort =
-                config.thinkingEffort as ChatCompletionRequest['reasoning_effort']
+                config.thinkingEffort as OpenAICompatibleRequest['reasoning_effort']
         }
 
         if (config.maxTokens) {
@@ -190,7 +190,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
     }
 
     public async whenRecvivedChunk(
-        message: SSEMessage<ChatCompletionChunk, string>,
+        message: SSEMessage<OpenAICompatibleChunk, string>,
         emit: (event: StreamEvent) => Promise<void>
     ) {
         const chunk = message.data
@@ -212,7 +212,8 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
         const reasoning: string | null | undefined =
             choice.delta?.reasoning_content || // deepseek, kimi
             choice.delta?.reasoning // others
-        const toolCallDelta: ToolCallChunk[] | null | undefined =
+        const toolCallDelta:
+            OpenAICompatibleToolCallChunk[] | null | undefined =
             choice.delta?.tool_calls
 
         if (reasoning && this.outputFlag !== 'THINKING') {
@@ -246,9 +247,30 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
             await emit({ type: 'function-call-start' })
         }
         if (toolCallDelta) {
-            for (const toolCallChunk of toolCallDelta) {
-                await emit({ type: 'function-call-delta', toolCallChunk })
-                this.toolCallChunks.push(toolCallChunk)
+            for (const tc of toolCallDelta) {
+                if (tc.type === 'function' && tc.id && tc.function.name) {
+                    await emit({
+                        type: 'function-call-delta',
+                        delta: {
+                            type: 'callee',
+                            index: tc.index,
+                            callee: tc.function.name,
+                            callId: tc.id,
+                            arguments: tc.function.arguments,
+                        },
+                    })
+                } else if (tc.function.arguments?.length) {
+                    await emit({
+                        type: 'function-call-delta',
+                        delta: {
+                            type: 'arguments',
+                            index: tc.index,
+                            delta: tc.function.arguments,
+                        },
+                    })
+                }
+
+                this.toolCallChunks.push(tc)
             }
         }
 
@@ -262,7 +284,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<ChatCompletionChun
                 }
 
                 this.outputFlag = 'UNKNOWN'
-                await emit({ type: 'function-call-end', toolCalls })
+                await emit({ type: 'function-call-end' })
             }
         } else if (choice.finish_reason) {
             this.outputFlag = 'UNKNOWN'
