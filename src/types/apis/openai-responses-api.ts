@@ -117,6 +117,12 @@ export type ResponsesStreamEvent =
           delta: string
       }
     | {
+          type: 'response.reasoning_text.delta'
+          output_index: number
+          item_id: string
+          delta: string
+      }
+    | {
           type: 'response.completed'
           response: {
               id: string

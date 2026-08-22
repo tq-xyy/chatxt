@@ -288,7 +288,11 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                 return
             }
 
-            case 'response.reasoning_summary_text.delta': {
+            case 'response.reasoning_summary_text.delta':
+            case 'response.reasoning_text.delta': {
+                // 兼容两种事件名：
+                // - Opencode 网关: response.reasoning_summary_text.delta
+                // - DeepSeek 官方: response.reasoning_text.delta
                 if (this.outputFlag !== 'THINKING') {
                     this.outputFlag = 'THINKING'
                     await emit({ type: 'reasoning-start' })
