@@ -37,7 +37,12 @@ export class ToolRunner {
             stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
         })
 
-        child.stdout?.pipe(process.stdout)
+        if (this.session.config.emitToConsole) {
+            child.stdout?.pipe(process.stderr)
+        } else {
+            child.stdout?.pipe(process.stdout)
+        }
+
         child.stderr?.pipe(process.stderr)
 
         const tools = await new Promise<ToolDefinition[]>(

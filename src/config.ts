@@ -25,9 +25,12 @@ export interface Config {
     model: string
     apikey?: string
 
+    // output options
+    emitToConsole?: boolean
     showThinking?: boolean
     excludeHistoryToolCall?: boolean
 
+    // completions options
     thinkingEffort?: string
     thinkingMode?: string
     maxTokens?: number

@@ -19,6 +19,11 @@ program
         'show reasoning chain in .chat.txt (if available)'
     )
     .option(
+        '-e, --emit-to-console',
+        'emit the generated content to the console without writing to the .chat.txt, \n' +
+            'which is useful for debug and e2e tests'
+    )
+    .option(
         '--exclude-history-tool-call',
         'remove history tool call from context to save tokens'
     )
@@ -31,12 +36,14 @@ program
                 endpoint,
                 showThinking,
                 excludeHistoryToolCall,
+                emitToConsole,
             }: {
                 model?: string
                 apiKey?: string
                 endpoint?: string
                 showThinking: boolean
                 excludeHistoryToolCall: boolean
+                emitToConsole: boolean
             }
         ) => {
             const config = await loadConfig({
@@ -45,6 +52,7 @@ program
                 endpoint,
                 showThinking,
                 excludeHistoryToolCall,
+                emitToConsole,
             })
             const session = new ChatSession(file, config)
             await session.loop()

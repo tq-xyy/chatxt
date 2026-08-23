@@ -96,7 +96,7 @@ export function printFinalStatus({
     toolCallCount: number
     totalCost: number
 }): void {
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
+    let output: string = ''
 
     // 第一行：生成完成提示
     let firstLine = ''
@@ -112,7 +112,7 @@ export function printFinalStatus({
         firstLine += ' Usage details are belows:'
     }
 
-    console.info(firstLine)
+    output += firstLine
 
     // 第二行：Token 总计与分类
     const secondLine = usages
@@ -126,10 +126,12 @@ export function printFinalStatus({
         .join('\n')
 
     if (usages.length > 0) {
-        console.info(secondLine)
+        output += '\n' + secondLine
     }
 
     // 第三行：时间、预估花费（如果有）、工具调用次数（如果有）
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
+
     let thirdLine = chalk.white('Elapsed time: ') + chalk.green(`${elapsed}s`)
 
     if (totalCost > 0) {
@@ -145,7 +147,14 @@ export function printFinalStatus({
             chalk.white('Total tool calls: ') +
             chalk.cyan(toolCallCount.toString())
     }
-    console.info(thirdLine)
+
+    output += '\n' + thirdLine
+
+    if (config.emitToConsole) {
+        process.stderr.write(output)
+    } else {
+        process.stdout.write(output)
+    }
 }
 
 export class ProgressReporter {
@@ -156,9 +165,12 @@ export class ProgressReporter {
     private drawTimer: NodeJS.Timeout | null = null
     private timingTimer: NodeJS.Timeout
 
-    constructor(prompt: string = 'Generating...') {
+    public slient: boolean
+
+    constructor(prompt: string = 'Generating...', slient: boolean = false) {
         this.setPrompt(prompt)
         this.timingTimer = setInterval(() => this.update(0), 1000)
+        this.slient = slient
     }
 
     public close() {
@@ -188,6 +200,7 @@ export class ProgressReporter {
     }
 
     public clear(): void {
+        if (this.slient) return
         // 清除待执行的绘制
         if (this.drawTimer) {
             clearTimeout(this.drawTimer)
@@ -204,6 +217,7 @@ export class ProgressReporter {
      * 节流调度：保证两次实际绘制间隔不小于 16ms
      */
     private scheduleDraw(): void {
+        if (this.slient) return
         const now = Date.now()
         const elapsed = now - this.lastDrawTime
 
@@ -230,8 +244,6 @@ export class ProgressReporter {
      * 实际绘制进度行
      */
     private draw(): void {
-        if (!process.stdout.isTTY) return
-
         const now = Date.now()
         this.lastDrawTime = now
 

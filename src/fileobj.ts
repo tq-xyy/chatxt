@@ -147,23 +147,24 @@ export class ChatFile {
         await appendFile(this.chatFilePath, this.writeBuffer, 'utf-8')
     }
 
-    async appendRoleLine(
+    public async appendContent(content: string) {
+        if (this.config.emitToConsole) {
+            process.stdout.write(content)
+        }
+        this.writeBuffer += content
+        this.debounceWrite()
+    }
+
+    public async appendRoleLine(
         role: ChatRole,
         options?: { withoutNewLine?: boolean }
     ) {
         options = options || {}
         if (options.withoutNewLine) {
-            this.writeBuffer += `\n----- CHAT ROLE: ${role} -----`
+            this.appendContent(`\n----- CHAT ROLE: ${role} -----`)
         } else {
-            this.writeBuffer += `\n\n----- CHAT ROLE: ${role} -----\n`
+            this.appendContent(`\n----- CHAT ROLE: ${role} -----\n`)
         }
-
-        this.debounceWrite()
-    }
-
-    async appendContent(content: string) {
-        this.writeBuffer += content
-        this.debounceWrite()
     }
 
     private convertPlainBlockToMessage(block: Block): Message {

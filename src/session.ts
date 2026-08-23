@@ -86,7 +86,10 @@ export class ChatSession {
         this.config = config
         this.file = new ChatFile(chatFilePath, config)
         this.startTime = performance.now()
-        this.reporter = new ProgressReporter('Requesting...')
+        this.reporter = new ProgressReporter(
+            'Requesting...',
+            !!this.config.emitToConsole || process.stdout.isTTY
+        )
         this.toolRunner = new ToolRunner(this)
 
         this.sumUsages = []
