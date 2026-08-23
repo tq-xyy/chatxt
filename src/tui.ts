@@ -12,19 +12,33 @@ export function printWarningMessage(warn: string): void {
 export function printExceptionMessage(err: unknown): void {
     const error = err instanceof Error ? err : new Error(String(err))
 
-    console.error(chalk.bold.red('× Exception Happens.'))
-    console.error(
-        chalk.bold.white(error.constructor.name) +
-            chalk.white(': ') +
-            chalk.white(error.message)
-    )
+    let output: string = ''
+
+    output += chalk.bold.red('× Exception Happens') + ' | '
+    output +=
+        chalk.bold.white(error.name) +
+        chalk.white(': ') +
+        chalk.white(error.message)
+
+    if (error.cause) {
+        const cause =
+            error.cause instanceof Error
+                ? error.cause
+                : new Error(String(error.cause))
+        output += ` (caused by ${cause.name}: ${cause.message})`
+    }
 
     if (error.stack) {
-        const frames = error.stack.split('\n').slice(1, 4)
+        const frames = error.stack
+            .split('\n')
+            .filter(line => !line.includes('node:'))
+            .slice(1, 4)
         for (const frame of frames) {
-            console.error(chalk.gray(`  ${frame.trim()}`))
+            output += chalk.gray(`\n  ${frame.trim()}`)
         }
     }
+
+    console.error(output)
 }
 
 function formatUsageAndCostForSingleModel(
