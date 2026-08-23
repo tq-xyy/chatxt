@@ -25,10 +25,14 @@ export interface Config {
     model: string
     apikey?: string
 
+    // input options
+    excludeHistoryToolCall?: boolean
+
     // output options
     emitToConsole?: boolean
-    showThinking?: boolean
-    excludeHistoryToolCall?: boolean
+    emitThinking?: boolean
+    /** unit `ms`, defaluts to 16ms, be negative will write to file immedately */
+    emitInterval?: number
 
     // completions options
     thinkingEffort?: string
@@ -94,7 +98,7 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
 }
 
 /**
- * 异步查找项目根目录（包含 .chatfilerc 文件夹的最近父目录）
+ * find the parent directory of .chatfilerc
  */
 async function findProjectRoot(startDir: string): Promise<string | null> {
     let dir = startDir
@@ -103,10 +107,10 @@ async function findProjectRoot(startDir: string): Promise<string | null> {
             await access(join(dir, '.chatfilerc'), constants.F_OK)
             return dir
         } catch {
-            // 目录不存在，继续向上
+            // going up
         }
         const parent = dirname(dir)
-        if (parent === dir) return null // 到达根目录
+        if (parent === dir) return null // enter root dir
         dir = parent
     }
 }
@@ -175,11 +179,11 @@ export async function initConfig(): Promise<void> {
     const configDir = join(cwd, '.chatfilerc')
     const configPath = join(configDir, 'config.json')
 
-    // 创建配置目录（如果不存在）
+    // create .chatfilerc if not exists
     try {
         await mkdir(configDir, { recursive: true })
     } catch {
-        // 忽略目录已存在或其他错误，后续会尝试写入文件
+        // skip create directory
     }
 
     try {

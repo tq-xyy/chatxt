@@ -187,13 +187,13 @@ export class ChatSession {
     private async onEmit(msg: StreamEvent): Promise<void> {
         switch (msg.type) {
             case 'reasoning-start':
-                if (this.config.showThinking) {
+                if (this.config.emitThinking) {
                     this.file.appendRoleLine('THINKING')
                 }
                 this.reporter.setPrompt('Thinking...')
                 break
             case 'reasoning-delta':
-                if (this.config.showThinking) {
+                if (this.config.emitThinking) {
                     this.file.appendContent(msg.delta)
                 }
                 this.reporter.update(msg.delta)
@@ -215,7 +215,7 @@ export class ChatSession {
                 break
 
             case 'function-call-start':
-                this.file.appendRoleLine('TOOL', { withoutNewLine: false })
+                this.file.appendRoleLine('TOOL', { withoutNewLine: true })
                 this.reporter.setPrompt('Generating Function Call...')
                 break
             case 'function-call-delta':

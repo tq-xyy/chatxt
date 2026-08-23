@@ -15,8 +15,8 @@ program
     .option('-k, --api-key <model>', 'api key from your model provider')
     .option('--endpoint <model>', 'the endpoint of model provider')
     .option(
-        '-t, --show-thinking',
-        'show reasoning chain in .chat.txt (if available)'
+        '-t, --emit-thinking',
+        'emit reasoning chain in .chat.txt (if available)'
     )
     .option(
         '-e, --emit-to-console',
@@ -34,14 +34,14 @@ program
                 model,
                 apiKey: apikey,
                 endpoint,
-                showThinking,
+                emitThinking,
                 excludeHistoryToolCall,
                 emitToConsole,
             }: {
                 model?: string
                 apiKey?: string
                 endpoint?: string
-                showThinking: boolean
+                emitThinking: boolean
                 excludeHistoryToolCall: boolean
                 emitToConsole: boolean
             }
@@ -50,7 +50,7 @@ program
                 model,
                 apikey,
                 endpoint,
-                showThinking,
+                emitThinking,
                 excludeHistoryToolCall,
                 emitToConsole,
             })

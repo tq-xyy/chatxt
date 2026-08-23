@@ -129,18 +129,10 @@ export class ChatFile {
         this.writeBuffer = ''
     }
 
-    private debounceWrite() {
-        if (this.writeTimer) return
-        this.writeTimer = setTimeout(async () => {
-            const buffer = this.writeBuffer
-            this.writeBuffer = ''
-            await appendFile(this.chatFilePath, buffer, 'utf-8')
-            this.writeTimer = null
-        }, 16)
-    }
-
     async flushBuffer() {
+        if (this.config.emitToConsole) return
         if (this.writeBuffer.length === 0) return
+        if ((this.config.emitInterval || 16) <= 0) return
         if (this.writeTimer) {
             clearTimeout(this.writeTimer)
         }
@@ -150,9 +142,23 @@ export class ChatFile {
     public async appendContent(content: string) {
         if (this.config.emitToConsole) {
             process.stdout.write(content)
+            return
         }
-        this.writeBuffer += content
-        this.debounceWrite()
+
+        if ((this.config.emitInterval || 16) <= 0) {
+            await appendFile(this.chatFilePath, content, 'utf-8')
+        } else {
+            this.writeBuffer += content
+
+            if (this.writeTimer) return
+
+            this.writeTimer = setTimeout(async () => {
+                const buffer = this.writeBuffer
+                this.writeBuffer = '' // prevent async bug
+                await appendFile(this.chatFilePath, buffer, 'utf-8')
+                this.writeTimer = null
+            }, this.config.emitInterval || 16)
+        }
     }
 
     public async appendRoleLine(

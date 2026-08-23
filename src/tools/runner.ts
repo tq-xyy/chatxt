@@ -8,9 +8,7 @@ import { printWarningMessage, printExceptionMessage } from '../tui'
 import { createAPIAdapter } from '../api'
 import { getModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type {
-    OpenAICompatibleResponse,
-} from '../types/apis/openai-compatible-api'
+import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-api'
 import { parseSSEStream } from '../utils/sseStream'
 
 export class ToolRunner {

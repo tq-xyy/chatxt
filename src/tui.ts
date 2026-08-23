@@ -162,7 +162,7 @@ export function printFinalStatus({
             chalk.cyan(toolCallCount.toString())
     }
 
-    output += '\n' + thirdLine
+    output += '\n' + thirdLine + '\n'
 
     if (config.emitToConsole) {
         process.stderr.write(output)
