@@ -88,7 +88,7 @@ export class ChatSession {
         this.startTime = performance.now()
         this.reporter = new ProgressReporter(
             'Requesting...',
-            !!this.config.emitToConsole || process.stdout.isTTY
+            !!this.config.emitToConsole || !process.stdout.isTTY
         )
         this.toolRunner = new ToolRunner(this)
 
@@ -206,6 +206,7 @@ export class ChatSession {
                 break
 
             case 'content-start':
+                this.file.appendContent('\n')
                 this.file.appendRoleLine('ASSISTANT')
                 this.reporter.setPrompt('Generating Answer...')
                 break
@@ -214,6 +215,7 @@ export class ChatSession {
                 this.reporter.update(msg.delta)
                 break
             case 'content-end':
+                this.file.appendContent('\n')
                 break
 
             case 'function-call-start':
