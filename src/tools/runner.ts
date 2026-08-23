@@ -5,6 +5,13 @@ import type { ToolDefinition, ToolCall, ToolMessage } from '../types/chat-file'
 import type { ChatCompletionMessage, IPCMessage } from './ipc-types'
 import type { ChatSession } from '../session'
 import { printWarningMessage, printExceptionMessage } from '../tui'
+import { createAPIAdapter } from '../api'
+import { getModelGateway } from '../config'
+import type { APIAdapter, StreamEvent } from '../types/api-adapter'
+import type {
+    OpenAICompatibleResponse,
+} from '../types/apis/openai-compatible-api'
+import { parseSSEStream } from '../utils/sseStream'
 
 export class ToolRunner {
     private processes = new Map<string, ChildProcess>()
@@ -207,19 +214,137 @@ export class ToolRunner {
                 if (ids) ids.delete(msg.id)
             }
         } else if (msg.type === 'chatCompletion') {
-            this.forwardChatCompletion(msg, child)
+            this.subAgentChatCompletion(msg, child)
         } else if (msg.type === 'warning') {
             printWarningMessage(msg.message)
         }
     }
 
-    private async forwardChatCompletion(
+    async subAgentChatCompletion(
         msg: ChatCompletionMessage,
         child: ChildProcess
     ): Promise<void> {
         const { id, request } = msg
+
+        if (request.stream) {
+            child.send({
+                type: 'chatCompletionResult',
+                id,
+                error: {
+                    message:
+                        'chatCompletion not support stream, please use `fetch`',
+                },
+            })
+            return
+        }
+
+        if (request.tools) {
+            child.send({
+                type: 'chatCompletionResult',
+                id,
+                error: {
+                    message:
+                        'chatCompletion not support tools, please use `fetch`',
+                },
+            })
+            return
+        }
+
+        if (!request.model) {
+            request.model = this.session.config.model
+        }
+
+        this.session.reporter.setPrompt(
+            'Call Function | Sub Agent Generating...'
+        )
+
+        const apiGateway = getModelGateway(this.session.config, request.model)
+
+        const api: APIAdapter = createAPIAdapter(apiGateway.endpointType)
+
+        await api.whenParsedChat({
+            messages: request.messages.filter(msg => msg.role !== 'system'),
+            system:
+                request.messages.find(msg => msg.role === 'system') ?? null,
+            toolDefitions: [],
+        })
+
+        const newConfig = { ...this.session.config }
+
+        if (request.thinking) {
+            newConfig.thinkingMode = request.thinking.type
+        }
+
+        if (request.reasoning_effort) {
+            newConfig.thinkingEffort = request.reasoning_effort
+        }
+
+        if (request.max_tokens) {
+            newConfig.maxTokens = request.max_tokens
+        }
+
+        if (request.response_format?.type === 'json_object') {
+            newConfig.jsonOnly = true
+        }
+
+        const result: OpenAICompatibleResponse = {
+            choices: [
+                {
+                    index: 0,
+                    finish_reason: 'stop',
+                    message: {
+                        role: 'assistant',
+                        content: '',
+                        reasoning_content: '',
+                    },
+                },
+            ],
+            usage: undefined,
+        }
+
+        const emit = async (msg: StreamEvent) => {
+            switch (msg.type) {
+                case 'reasoning-delta':
+                    result.choices[0].message.reasoning_content += msg.delta
+                    this.session.reporter.update(msg.delta)
+                    break
+                case 'content-delta':
+                    result.choices[0].message.content += msg.delta
+                    this.session.reporter.update(msg.delta)
+                    break
+                case 'response-end':
+                    if (msg.finishReason) {
+                        result.choices[0].finish_reason =
+                            msg.finishReason as OpenAICompatibleResponse['choices'][0]['finish_reason']
+                    }
+                    if (msg.usage) {
+                        result.usage = {
+                            prompt_tokens: msg.usage.input,
+                            completion_tokens: msg.usage.output,
+                            total_tokens: msg.usage.input + msg.usage.output,
+                            prompt_cache_hit_tokens: msg.usage.cached,
+                            prompt_cache_miss_tokens:
+                                msg.usage.input - msg.usage.cached,
+                            completion_tokens_details: {
+                                reasoning_tokens: msg.usage.thinking,
+                            },
+                        }
+                        this.session.addUsageRecord({
+                            ...msg.usage,
+                            model: msg.usage.model ?? request.model,
+                        })
+                    }
+                    break
+            }
+        }
+
         try {
-            const result = await this.session.subAgentChatCompletion(request)
+            const resp = await api.whenReadyToRequest(newConfig, apiGateway)
+
+            for await (const streamMessage of parseSSEStream(resp)) {
+                await api.whenRecvivedChunk(streamMessage, emit)
+            }
+
             child.send({ type: 'chatCompletionResult', id, result })
         } catch (err) {
             child.send({

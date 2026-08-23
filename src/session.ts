@@ -16,10 +16,6 @@ import {
 import { parseSSEStream } from './utils/sseStream'
 
 import type {
-    OpenAICompatibleResponse,
-    OpenAICompatibleRequest,
-} from './types/apis/openai-compatible-api'
-import type {
     FinishReason,
     ToolCall,
     ToolCallDelta,
@@ -316,117 +312,7 @@ export class ChatSession {
         this.toolRunner.close()
     }
 
-    async subAgentChatCompletion(
-        request: OpenAICompatibleRequest
-    ): Promise<OpenAICompatibleResponse> {
-        if (request.stream) {
-            throw new Error(
-                'chatCompletion not support stream, please use `fetch`'
-            )
-        }
-
-        if (request.tools) {
-            throw new Error(
-                'chatCompletion not support tools, please use `fetch`'
-            )
-        }
-
-        if (!request.model) {
-            request.model = this.config.model
-        }
-
-        this.reporter.setPrompt('Call Function | Sub Agent Generating...')
-
-        const apiGateway = getModelGateway(this.config, request.model)
-
-        const api: APIAdapter = createAPIAdapter(apiGateway.endpointType)
-
-        await api.whenParsedChat({
-            messages: request.messages.filter(msg => msg.role !== 'system'),
-            system:
-                request.messages.find(msg => msg.role === 'system') ?? null,
-            toolDefitions: [],
-        })
-
-        const newConfig = { ...this.config }
-
-        if (request.thinking) {
-            newConfig.thinkingMode = request.thinking.type
-        }
-
-        if (request.reasoning_effort) {
-            newConfig.thinkingEffort = request.reasoning_effort
-        }
-
-        if (request.max_tokens) {
-            newConfig.maxTokens = request.max_tokens
-        }
-
-        if (request.response_format?.type === 'json_object') {
-            newConfig.jsonOnly = true
-        }
-
-        const resp = await api.whenReadyToRequest(newConfig, apiGateway)
-
-        const result: OpenAICompatibleResponse = {
-            choices: [
-                {
-                    index: 0,
-                    finish_reason: 'stop',
-                    message: {
-                        role: 'assistant',
-                        content: '',
-                        reasoning_content: '',
-                    },
-                },
-            ],
-            usage: undefined,
-        }
-
-        const emit = async (msg: StreamEvent) => {
-            switch (msg.type) {
-                case 'reasoning-delta':
-                    result.choices[0].message.reasoning_content += msg.delta
-                    this.reporter.update(msg.delta)
-                    break
-                case 'content-delta':
-                    result.choices[0].message.content += msg.delta
-                    this.reporter.update(msg.delta)
-                    break
-                case 'response-end':
-                    if (msg.finishReason) {
-                        result.choices[0].finish_reason =
-                            msg.finishReason as OpenAICompatibleResponse['choices'][0]['finish_reason']
-                    }
-                    if (msg.usage) {
-                        result.usage = {
-                            prompt_tokens: msg.usage.input,
-                            completion_tokens: msg.usage.output,
-                            total_tokens: msg.usage.input + msg.usage.output,
-                            prompt_cache_hit_tokens: msg.usage.cached,
-                            prompt_cache_miss_tokens:
-                                msg.usage.input - msg.usage.cached,
-                            completion_tokens_details: {
-                                reasoning_tokens: msg.usage.thinking,
-                            },
-                        }
-                        this.addUsageRecord({
-                            ...msg.usage,
-                            model: msg.usage.model ?? request.model,
-                        })
-                    }
-                    break
-            }
-        }
-
-        for await (const streamMessage of parseSSEStream(resp)) {
-            await api.whenRecvivedChunk(streamMessage, emit)
-        }
-
-        return result
-    }
-
-    private addUsageRecord(usage: NormalizedUsage) {
+    public addUsageRecord(usage: NormalizedUsage) {
         this.sumUsages = mergeNormalizedUsages(this.sumUsages, usage)
     }
 }
