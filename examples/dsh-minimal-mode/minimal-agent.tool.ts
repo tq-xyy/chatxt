@@ -45,12 +45,16 @@ let queue: Promise<void> = Promise.resolve()
 process.on('exit', () => {
     try {
         shell?.kill()
-    } catch {}
+    } catch {
+        /* empty */
+    }
 })
 process.on('SIGTERM', () => {
     try {
         shell?.kill()
-    } catch {}
+    } catch {
+        /* empty */
+    }
     process.exit(0)
 })
 
@@ -90,7 +94,9 @@ function resetShell(): void {
     if (shell && shell.exitCode === null) {
         try {
             shell.kill()
-        } catch {}
+        } catch {
+            /* empty */
+        }
     }
     shell = null
 }

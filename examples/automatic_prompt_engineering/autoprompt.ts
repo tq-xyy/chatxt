@@ -40,7 +40,8 @@ async function testPrompt({
                     { role: 'system', content: prompt },
                     { role: 'user', content: input },
                 ],
-                thinking: { type: thinking as any },
+                // @ts-expect-error as any
+                thinking: { type: thinking },
                 reasoning_effort: thinking_effort as
                     'high' | 'max' | undefined,
             })

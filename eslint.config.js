@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
 
 export default defineConfig(
-    { ignores: ['dist', 'examples', '*ignored*'] },
+    { ignores: ['dist', '*ignored*'] },
     eslint.configs.recommended,
     tseslint.configs.recommended,
     prettier
