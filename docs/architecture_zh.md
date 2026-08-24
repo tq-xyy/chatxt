@@ -1,8 +1,8 @@
-# Chatfile 架构文档
+# Chatxt 架构文档
 
 > 此文档已过时
 
-Chatfile 是一个"对话即文件"的命令行 AI 聊天工具。用户在 `.chat.txt` 纯文本文件中书写对话，运行 `chatfile <file>` 后，AI 的回复（含思维链、工具调用与结果）被原样追加写回同一文件。整个对话历史天然由文件本身承载，无需数据库。
+Chatxt 是一个"对话即文件"的命令行 AI 聊天工具。用户在 `.chat.txt` 纯文本文件中书写对话，运行 `chatxt <file>` 后，AI 的回复（含思维链、工具调用与结果）被原样追加写回同一文件。整个对话历史天然由文件本身承载，无需数据库。
 
 - 语言：TypeScript（ESM，Node.js ≥ 22）
 - 构建：esbuild 打包为单文件 `dist/cli.js`
@@ -17,7 +17,7 @@ Chatfile 是一个"对话即文件"的命令行 AI 聊天工具。用户在 `.ch
 ## 目录结构总览
 
 ```
-chatfile/
+chatxt/
 ├── package.json              # 项目元信息与构建脚本
 ├── tsconfig.json             # TypeScript 配置（strict, ESNext）
 ├── docs/
@@ -83,7 +83,7 @@ chatfile/
 调用ID: 结果JSON
 ```
 
-首行支持 shebang（`#!/usr/bin/env chatfile`），解析时会被忽略。
+首行支持 shebang（`#!/usr/bin/env chatxt`），解析时会被忽略。
 
 ### 2. 用户块内指令
 
@@ -106,12 +106,12 @@ chatfile/
 
 基于 commander，提供两个命令：
 
-- `chatfile <file>`：处理指定 `.chat.txt` 文件（不存在时自动创建含默认系统提示词的模板）
+- `chatxt <file>`：处理指定 `.chat.txt` 文件（不存在时自动创建含默认系统提示词的模板）
     - `-m, --model`：覆盖模型名
     - `--endpoint`：覆盖 API 端点
     - `-t, --show-thinking`：将思维链写入文件
     - `--exclude-history-tool-call`：从上下文中剔除历史工具调用以节省 token
-- `chatfile init-config`：在当前目录创建 `.chatfilerc/config.json` 模板
+- `chatxt init-config`：在当前目录创建 `.chatxtrc/config.json` 模板
 
 ### `src/config.ts` — 配置系统
 
@@ -120,12 +120,12 @@ chatfile/
 加载优先级：
 
 ```
-运行时参数（CLI 选项） > .chatfilerc/config.json > 默认模板
+运行时参数（CLI 选项） > .chatxtrc/config.json > 默认模板
 ```
 
-- 配置文件通过向上查找最近的 `.chatfilerc` 目录定位（类似项目根标记）。
+- 配置文件通过向上查找最近的 `.chatxtrc` 目录定位（类似项目根标记）。
 - `apiKey` 特殊处理：环境变量 `OPENAI_API_KEY` 优先于配置文件。
-- 安全机制：若配置文件中含 apiKey 且未设置环境变量，发出警告；创建 `.chatfilerc/allow-apikey-in-project` 标记文件可抑制该警告。
+- 安全机制：若配置文件中含 apiKey 且未设置环境变量，发出警告；创建 `.chatxtrc/allow-apikey-in-project` 标记文件可抑制该警告。
 
 ### `src/session.ts` — 会话核心（ChatSession）
 
@@ -254,7 +254,7 @@ flowchart TD
 一次典型运行的时间线：
 
 1. 用户在 `.chat.txt` 的 USER 块写好输入（可 `@file` 引用资料、`@tool` 声明工具）。
-2. `chatfile xxx.chat.txt` 启动，解析文件、加载工具子进程。
+2. `chatxt xxx.chat.txt` 启动，解析文件、加载工具子进程。
 3. 流式生成：思维链/正文/工具调用实时防抖写回文件（用户可在编辑器中实时查看）。
 4. 若模型发起工具调用：并发执行，结果写入 TOOLRESPONSE 块，随后自动发起下一轮生成。
 5. 循环直至模型给出最终回答，末尾追加空 USER 块等待下次输入。

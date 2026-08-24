@@ -102,7 +102,7 @@ export class ChatSession {
                 `${this.chatFilePath} don't exist. Automatically create a none file.`
             )
             const content = [
-                `#!/usr/bin/env chatfile`,
+                `#!/usr/bin/env chatxt`,
                 `----- CHAT ROLE: SYSTEM -----`,
                 defaultSystemPrompt,
                 `----- CHAT ROLE: USER -----`,

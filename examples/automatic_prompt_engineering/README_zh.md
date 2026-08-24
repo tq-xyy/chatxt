@@ -1,6 +1,6 @@
 # Auto Prompt Engineering — 提示词自动优化工具
 
-基于 Chatfile 工具系统实现，让 LLM 可以自行对用户的 prompt 进行测试和迭代优化。
+基于 Chatxt 工具系统实现，让 LLM 可以自行对用户的 prompt 进行测试和迭代优化。
 
 ## 工作流程
 
@@ -51,7 +51,7 @@ tests/
 运行：
 
 ```bash
-chatfile my_prompt_work.chat.txt
+chatxt my_prompt_work.chat.txt
 ```
 
 AI 会依次调用 `savePrompt` 暂存目标 prompt，然后引导你进行修改。当你说"测试一下当前效果"时，AI 会调用 `testPrompt` 读取 `tests/` 中的样例进行评估，并根据测试结果继续优化。
@@ -59,4 +59,4 @@ AI 会依次调用 `savePrompt` 暂存目标 prompt，然后引导你进行修�
 ## 注意
 
 - `cache/` 和 `tests/` 已加入 `.gitignore`，不会被提交到版本控制
-- 工具函数通过 `serveAsTool` 注册，由 Chatfile 工具系统自动调度，无需手动调用
+- 工具函数通过 `serveAsTool` 注册，由 Chatxt 工具系统自动调度，无需手动调用

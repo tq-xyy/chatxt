@@ -1,6 +1,6 @@
 # Minimal Agent — 复刻 DeepSeek Harness 极简模式
 
-基于 Chatfile 工具系统实现 DeepSeek Harness（`dsh`）的 `minimal` agent preset（预设名"极简模式"）。dsh 的极简模式只有两把工具：
+基于 Chatxt 工具系统实现 DeepSeek Harness（`dsh`）的 `minimal` agent preset（预设名"极简模式"）。dsh 的极简模式只有两把工具：
 
 > 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
 
@@ -33,7 +33,7 @@ SYSTEM 段固定为 `You are a helpful software engineer assistant.`（与 dsh �
 ### 2. 运行
 
 ```sh
-chatfile my_session.chat.txt
+chatxt my_session.chat.txt
 ```
 
 ## 工具说明
@@ -61,7 +61,7 @@ chatfile my_session.chat.txt
 - 超时 / shell 意外退出 → kill 并重置，下次调用全新会话（对照 dsh 的 reset 契约）
 - 同一 agent 的命令**串行排队**（对照 dsh 的 serialized）；输出超过 16,000 字符自动截断并附 `<response clipped>` 引导
 
-> 与 dsh 的差异：dsh 的持久 shell 运行在 PTY 里（bash `-i` / pwsh 交互式），因此需要安装受控提示符、剥离 PSReadLine 回显、按 25ms 轮询 scrollback；chatfile 使用 spawn 管道（无交互回显），同样语义下更简单，采用事件驱动读取。
+> 与 dsh 的差异：dsh 的持久 shell 运行在 PTY 里（bash `-i` / pwsh 交互式），因此需要安装受控提示符、剥离 PSReadLine 回显、按 25ms 轮询 scrollback；chatxt 使用 spawn 管道（无交互回显），同样语义下更简单，采用事件驱动读取。
 
 ### `str_replace_editor`
 
@@ -86,5 +86,5 @@ chatfile my_session.chat.txt
 ## 与 dsh 的差异
 
 - **无沙箱与权限层**：dsh 默认 `workspace-write` 权限预设，本示例中工具可读写任何路径，请仅在可信环境中使用。
-- **无Web UI 会话创建**：dsh 需要在 Web UI 的 `/` 菜单选择"极简模式"，chatfile 只需一行 `@tool(...)`，更贴合"对话即文件"。
+- **无Web UI 会话创建**：dsh 需要在 Web UI 的 `/` 菜单选择"极简模式"，chatxt 只需一行 `@tool(...)`，更贴合"对话即文件"。
 - **PTY 差异**：dsh 的持久 shell 是真实 PTY（交互式 bash/pwsh），本示例是管道模式，无交互回显、无 PSReadLine，实现更简单。

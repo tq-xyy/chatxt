@@ -98,13 +98,13 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
 }
 
 /**
- * find the parent directory of .chatfilerc
+ * find the parent directory of .chatxtrc
  */
 async function findProjectRoot(startDir: string): Promise<string | null> {
     let dir = startDir
     while (true) {
         try {
-            await access(join(dir, '.chatfilerc'), constants.F_OK)
+            await access(join(dir, '.chatxtrc'), constants.F_OK)
             return dir
         } catch {
             // going up
@@ -124,7 +124,7 @@ export async function loadConfig(
     let fileConfig: Partial<Config> = {}
 
     if (projectRoot) {
-        const configPath = join(projectRoot, '.chatfilerc', 'config.json')
+        const configPath = join(projectRoot, '.chatxtrc', 'config.json')
         try {
             await access(configPath, constants.F_OK)
             const raw = await readFile(configPath, 'utf-8')
@@ -176,10 +176,10 @@ export async function initConfig(): Promise<void> {
     }
 
     const cwd = process.cwd()
-    const configDir = join(cwd, '.chatfilerc')
+    const configDir = join(cwd, '.chatxtrc')
     const configPath = join(configDir, 'config.json')
 
-    // create .chatfilerc if not exists
+    // create .chatxtrc if not exists
     try {
         await mkdir(configDir, { recursive: true })
     } catch {
@@ -188,7 +188,7 @@ export async function initConfig(): Promise<void> {
 
     try {
         await access(configPath, constants.F_OK)
-        printWarningMessage('.chatfilerc/config.json already exists.')
+        printWarningMessage('.chatxtrc/config.json already exists.')
         return
     } catch {
         // create config if config not exists

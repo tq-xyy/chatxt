@@ -7,8 +7,8 @@ import { version } from '../package.json'
 const program = new Command()
 
 program
-    .name('chatfile')
-    .description('Chatfile CLI – AI conversations as files')
+    .name('chatxt')
+    .description('Chatxt CLI – AI conversations as files')
     .version(version)
     .argument('<file>', '.chat.txt file to process, create if not available.')
     .option('-m, --model <model>', 'model to be used to generate')
@@ -61,7 +61,7 @@ program
 
 program
     .command('init-config')
-    .description('Create default .chatfilerc/config.json')
+    .description('Create default .chatxtrc/config.json')
     .action(async () => {
         await initConfig()
     })

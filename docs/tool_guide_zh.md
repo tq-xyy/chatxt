@@ -1,12 +1,12 @@
-# Chatfile 工具调用指南
+# Chatxt 工具调用指南
 
-Chatfile 的工具系统让你能用几行代码将任意 Node.js 能力变成 AI 可直接调用的函数。无需处理标准输入输出，无需引入额外依赖，只需定义业务函数，然后通过 `serveAsTool` 注册即可。
+Chatxt 的工具系统让你能用几行代码将任意 Node.js 能力变成 AI 可直接调用的函数。无需处理标准输入输出，无需引入额外依赖，只需定义业务函数，然后通过 `serveAsTool` 注册即可。
 
 ---
 
 ## 三个全局函数
 
-Chatfile 在运行你的工具文件之前，会注入三个全局函数（无需 `require`/`import`）：
+Chatxt 在运行你的工具文件之前，会注入三个全局函数（无需 `require`/`import`）：
 
 ### 1. `serveAsTool`
 
@@ -41,7 +41,7 @@ async function chatCompletion(request: {
 ```
 
 **功能**  
-在工具函数内部调用 LLM。请求通过 IPC 发送到主进程，由主进程代理执行，token 用量会自动汇总到 Chatfile 的总计费中。
+在工具函数内部调用 LLM。请求通过 IPC 发送到主进程，由主进程代理执行，token 用量会自动汇总到 Chatxt 的总计费中。
 
 **示例**
 
@@ -269,4 +269,4 @@ AI 会依次调用 `current_time({ timezone: 'Asia/Shanghai' })` 和 `memory_usa
 - **调试信息**：可以在工具函数内任意使用 `console.log`，输出会直接显示在终端。
 - **文件位置**：建议将工具文件放在项目目录的 `tools/` 文件夹下，通过相对路径引用（相对于 `.chat.md` 所在目录）。
 
-现在你已经了解了 Chatfile 工具系统的基本用法和高级技巧，可以开始编写自己的工具，享受可编程对话的乐趣了。
+现在你已经了解了 Chatxt 工具系统的基本用法和高级技巧，可以开始编写自己的工具，享受可编程对话的乐趣了。

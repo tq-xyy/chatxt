@@ -1,4 +1,4 @@
-# Chatfile
+# Chatxt
 
 "对话即文件"的命令行 AI 聊天工具：用户在 `.chat.txt` 纯文本文件中书写对话，AI 回复（含思维链、工具调用与结果）实时写回同一文件，对话历史天然由文件承载。
 
@@ -17,8 +17,8 @@ pnpm install        # 安装依赖（只用 pnpm，不用 npm/yarn）
 pnpm build          # 构建 dist/cli.js
 pnpm typecheck      # tsc --noEmit 类型检查
 pnpm lint           # prettier 格式化
-chatfile <file>     # 处理 .chat.txt 文件
-chatfile init-config  # 生成 .chatfilerc/config.json
+chatxt <file>     # 处理 .chat.txt 文件
+chatxt init-config  # 生成 .chatxtrc/config.json
 ```
 
 ## 编码规范

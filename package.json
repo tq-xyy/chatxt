@@ -1,10 +1,10 @@
 {
-    "name": "chatfile",
+    "name": "chatxt",
     "version": "1.0.0",
     "type": "module",
-    "description": "Chatfile - AI conversations recorded as .chat.md files",
+    "description": "Chatxt - AI conversations recorded as .chat.txt files",
     "bin": {
-        "chatfile": "dist/cli.js"
+        "chatxt": "dist/cli.js"
     },
     "scripts": {
         "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli.js",

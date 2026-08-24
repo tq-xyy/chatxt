@@ -9,7 +9,7 @@
 //   @tool(./minimal-agent.tool.ts)
 //
 // run_shell 的设计对照 DeepSeek Harness 的 tool-pwsh-persistent 与
-// tool-bash-persistent（详见同目录 README.md）；chatfile 用 spawn 管道而非
+// tool-bash-persistent（详见同目录 README.md）；chatxt 用 spawn 管道而非
 // PTY，故省略其提示符安装与回显剥离逻辑。
 
 import * as fs from 'fs/promises'
@@ -107,8 +107,8 @@ interface CommandMarkers {
 function markers(): CommandMarkers {
     const nonce = randomUUID()
     return {
-        start: `__CHATFILE_SHELL_START_${nonce}__`,
-        end: `__CHATFILE_SHELL_END_${nonce}:`,
+        start: `__CHATXT_SHELL_START_${nonce}__`,
+        end: `__CHATXT_SHELL_END_${nonce}:`,
     }
 }
 
