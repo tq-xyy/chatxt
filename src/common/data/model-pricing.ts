@@ -1,6 +1,6 @@
 import type { Pricing } from '../pricing'
 
-export const USD_TO_CNY = 6.72 // 2026/8/22 update
+export const USD_TO_CNY = 6.72 // 2026/8/27 update
 
 export const modelOfficalPricing: Record<string, Pricing | Pricing[]> = {
     // https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
@@ -222,7 +222,22 @@ export const modelOfficalPricing: Record<string, Pricing | Pricing[]> = {
         currency: 'CNY',
     },
 
+    // https://longcat.chat/platform/docs/zh/api-pay-as-you-go
+    'longcat-2.0': {
+        input: 2,
+        output: 8,
+        cached: 0.04,
+        currency: 'CNY',
+    },
+
     // https://open.bigmodel.cn/pricing
+    'glm-5.3-flash': {
+        // 50% off in two next weeks (start 2026/08/27)
+        input: 0.4,
+        output: 1.4,
+        cached: 0.1,
+        currency: 'CNY',
+    },
     'glm-5.3': {
         input: 8,
         output: 28,
