@@ -241,7 +241,9 @@ export class ChatFile {
                     try {
                         const text = await readFile(filePath, 'utf-8')
 
-                        suffixContent += `===========\nFile (${comp.arg}):\n${text}\n`
+                        suffixContent += `====== QUOTE BEGIN =====\n`
+                        suffixContent += `File (${comp.arg}):\n${text}\n`
+                        suffixContent += `====== QUOTE END =====\n`
                         this.referredFiles.add(filePathAbs)
                     } catch (err) {
                         printWarningMessage(
