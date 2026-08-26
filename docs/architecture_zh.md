@@ -28,7 +28,7 @@ src/
 
 **用户块内指令**（仅 `USER` 块解析，其余角色块原样透传；路径相对 `.chat.txt` 所在目录）：`@file(路径)` 把外部文件内容追加到消息尾部（同一文件一次会话只引用一次）；`@include(路径)` 每次都内联外部文件内容；`@tool(路径)` 声明工具文件，会话启动时加载。
 
-**工具系统**：任意 Node.js 脚本（`.ts`/`.js`），通过全局函数 `serveAsTool(fn, description, jsonSchema)` 注册工具。工具文件被 `fork` 为常驻子进程，通过 IPC 与主进程通信；子进程内还可调用 `chatCompletion()`（由主进程代理，用量计入会话）与 `ToJSONSchema()`（参数定义简写）。详见 `docs/tool_guide_zh.md`。
+**工具系统**：任意 Node.js 脚本（`.ts`/`.js`），通过全局对象 `chatxt` 的 `runtime.exposeTool()` 注册工具。工具文件被 `fork` 为常驻子进程，通过 IPC 与主进程通信；子进程内还可调用 `chatxt.runtime.chatCompletion()`（由主进程代理，用量计入会话）与 `chatxt.helpers.convertArgsToSchema()`（参数定义简写）。详见 `docs/tool_guide_zh.md`。
 
 ## 模块说明
 
@@ -55,7 +55,9 @@ src/
 
 ### `api/`（适配器）
 
-`APIAdapter` 接口：`whenParsedChat`（注入消息）、`whenReadyToRequest`（构造请求并返回 Response）、`whenRecvivedChunk`（SSE chunk → StreamEvent）。三种实现：
+`APIAdapter` 接口：`whenParsedChat`（注入消息）、`whenReadyToRequest`（构造请求并返回 Response）、`whenRecvivedChunk`（SSE chunk → StreamEvent）。
+
+内部统一使用与协议无关的扁平 `ToolDef`（`{ name, description, parameters }`），各 adapter 在 `whenParsedChat` 中将其转换为自身协议的 wire 格式（OpenAI 的 `{type:'function', function:{...}}` 包装、Anthropic 的 `input_schema`、Responses 的扁平 tool 定义）。三种实现：
 
 - `openai-compatible.ts`：`/chat/completions`（DeepSeek、Zhipu 等），解析 `reasoning_content`、缓存命中、`tool_calls` 分片
 - `anthropic.ts`：`/messages`（Claude、Qwen 等经 Anthropic 兼容网关），tool_result 归入 user 消息
@@ -64,7 +66,7 @@ src/
 ### `tools/`（工具系统）
 
 - `runner.ts`（主进程侧）：`loadTool()` fork 工具文件并通过 `--import tool-runtime.ts` 注入运行时，等待 register 消息（10s 超时）；`execute()` 为每次调用分配自增 requestId，Promise 挂起等待 result；子进程崩溃以错误 JSON 作为结果返回，不中断会话
-- `tool-runtime.ts`（子进程侧）：注入 `serveAsTool` / `chatCompletion` / `ToJSONSchema` 三个全局函数，监听 execute 消息并回传结果
+- `tool-runtime.ts`（子进程侧）：注入 `chatxt` 运行时对象（`runtime.exposeTool` / `runtime.chatCompletion` / `helpers.convertArgsToSchema`），监听 execute 消息并回传结果
 - `ipc-types.ts`：主→子 `execute | chatCompletionResult | exit`，子→主 `register | result | chatCompletion | warning | error`
 
 ### `common/`、`utils/` 与 `tui.ts`

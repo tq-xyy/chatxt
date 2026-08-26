@@ -147,7 +147,7 @@ Configuration is loaded from `.chatxtrc/config.json`, found by walking up from t
 
 ## Tools
 
-A tool is any Node.js script that registers itself with the global `serveAsTool` function. Each tool file runs in its own forked process:
+A tool is any Node.js script that registers itself via the globally injected `chatxt` runtime object. Each tool file runs in its own forked process:
 
 ```js
 // weather.tool.js
@@ -155,18 +155,23 @@ function getWeather({ location }) {
     return { location, temperature: 22, unit: 'celsius', condition: 'sunny' }
 }
 
-serveAsTool(
-    getWeather,
-    'Get the current weather for a location',
-    ToJSONSchema([['location', 'City name', String]])
-)
+chatxt.runtime.exposeTool([
+    {
+        name: 'getWeather',
+        description: 'Get the current weather for a location',
+        parameters: chatxt.helpers.convertArgsToSchema([
+            ['location', 'City name', String],
+        ]),
+        func: getWeather,
+    },
+])
 ```
 
-Global functions available inside tool files (no import needed):
+Global API available in tool files (no import needed):
 
-- `serveAsTool(fn, description, jsonSchema, ...)` — register tools and report definitions
-- `chatCompletion(request)` — call an LLM from inside a tool (proxied by the main process; usage is billed to the session)
-- `ToJSONSchema(argsDefs)` — shorthand for building parameter JSON schemas
+- `chatxt.runtime.exposeTool([{ name, description, parameters, func }])` — register tools and report definitions
+- `chatxt.runtime.chatCompletion(request)` — call an LLM from inside a tool (proxied by the main process; usage is billed to the session)
+- `chatxt.helpers.convertArgsToSchema(argsDefs)` — shorthand for building parameter JSON schemas
 
 See [docs/tool_guide_zh.md](docs/tool_guide_zh.md) for the full guide.
 

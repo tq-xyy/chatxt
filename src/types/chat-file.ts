@@ -7,9 +7,9 @@ export type {
     OpenAICompatibleUserMessage as UserMessage,
     // Tools
     OpenAICompatibleToolCall as ToolCall,
-    OpenAICompatibleToolDefinition as ToolDefinition,
     OpenAICompatibleToolMessage as ToolMessage,
 } from './apis/openai-compatible-api'
+import type { JSONSchema7 as JSONSchema } from 'json-schema'
 
 export type ToolCallDelta =
     | {
@@ -24,3 +24,9 @@ export type ToolCallDelta =
           index: number
           delta: string
       }
+
+export interface ToolDef {
+    name: string
+    description: string
+    parameters: JSONSchema
+}

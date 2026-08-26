@@ -389,13 +389,13 @@ async function str_replace_editor({
 // 注册
 // ---------------------------------------------------------------------------
 
-serveAsTool(
-    [
-        run_shell,
-        isWin
+chatxt.runtime.exposeTool([
+    {
+        name: 'run_shell',
+        description: isWin
             ? '在 PowerShell 中运行命令。状态跨命令调用与对话持久。无互联网访问。请避免产生大量输出的命令，长命令请放后台（如 Start-Job）。'
             : '在 bash 中运行命令。状态跨命令调用与对话持久。无互联网访问。请避免产生大量输出的命令，长命令请放后台（如 sleep 10 &）。',
-        {
+        parameters: {
             type: 'object',
             properties: {
                 command: { type: 'string', description: '要执行的命令' },
@@ -406,11 +406,13 @@ serveAsTool(
             },
             required: ['command'],
         },
-    ],
-    [
-        str_replace_editor,
-        '精确编辑文件。支持 view（查看，可选行范围）/ str_replace（唯一匹配替换）/ create（创建）/ insert（按行插入）。文件路径为绝对路径或相对 cwd。',
-        {
+        func: run_shell,
+    },
+    {
+        name: 'str_replace_editor',
+        description:
+            '精确编辑文件。支持 view（查看，可选行范围）/ str_replace（唯一匹配替换）/ create（创建）/ insert（按行插入）。文件路径为绝对路径或相对 cwd。',
+        parameters: {
             type: 'object',
             properties: {
                 command: {
@@ -437,5 +439,6 @@ serveAsTool(
             },
             required: ['command', 'file_path'],
         },
-    ]
-)
+        func: str_replace_editor,
+    },
+])

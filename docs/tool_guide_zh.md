@@ -4,40 +4,43 @@ Chatxt 的工具系统让你能用几行代码将任意 Node.js 能力变成 AI 
 
 ---
 
-## 三个全局函数
+## `chatxt` 运行时对象
 
-Chatxt 在运行你的工具文件之前，会注入三个全局函数（无需 `require`/`import`）：
+Chatxt 在运行你的工具文件之前，会注入一个全局对象 `chatxt`（无需 `require`/`import`），内含三个 API：
 
-### 1. `serveAsTool`
+### 1. `chatxt.runtime.exposeTool`
 
 **声明**
 
 ```ts
-function serveAsTool(
-    ...entries: [
-        (...args: any[]) => any, // 业务函数
-        string, // 功能描述（给 AI 看）
-        Record<string, any>, // 参数 JSON Schema（给 AI 看）
-    ][]
+function exposeTool(
+    tools: {
+        name: string // 工具名（给 AI 调用）
+        description: string // 功能描述（给 AI 看）
+        parameters: JSONSchema // 参数 JSON Schema（给 AI 看）
+        func: (args: any) => any // 业务函数，接收一个参数对象
+    }[]
 ): void
 ```
 
 **功能**  
-注册一个或多个工具函数，并通过 IPC 向主进程报告工具定义。注册后子进程保持运行，等待主进程调用。
+注册一个或多个工具，并通过 IPC 向主进程报告工具定义。注册后子进程保持运行，等待主进程调用。
 
-**不再退出进程**：工具文件末尾调用 `serveAsTool` 后进程不会退出，而是持续监听主进程的调用请求。之后可以在文件内自由使用 `console.log` 输出调试信息。
+**不再退出进程**：工具文件末尾调用 `exposeTool` 后进程不会退出，而是持续监听主进程的调用请求。之后可以在文件内自由使用 `console.log` 输出调试信息。
 
-### 2. `chatCompletion`
+### 2. `chatxt.runtime.chatCompletion`
 
 **声明**
 
 ```ts
 async function chatCompletion(request: {
-    messages: { role: string; content: string }[]
+    messages: OpenAICompatibleMessage[]
     model?: string
     temperature?: number
     max_tokens?: number
-}): Promise<any>
+    thinking?: { type: 'enabled' | 'disabled' }
+    reasoning_effort?: 'low' | 'medium' | 'high' | 'max'
+}): Promise<OpenAICompatibleResponse>
 ```
 
 **功能**  
@@ -47,19 +50,19 @@ async function chatCompletion(request: {
 
 ```javascript
 async function summarize({ text }) {
-    const resp = await chatCompletion({
+    const resp = await chatxt.runtime.chatCompletion({
         messages: [{ role: 'user', content: `总结：${text}` }],
     })
     return { summary: resp.choices[0].message.content }
 }
 ```
 
-### 3. `ToJSONSchema`
+### 3. `chatxt.helpers.convertArgsToSchema`
 
 **声明**
 
 ```ts
-function ToJSONSchema(
+function convertArgsToSchema(
     argsDefs: [
         string, // 参数名
         string, // 参数描述
@@ -72,7 +75,7 @@ function ToJSONSchema(
 **功能**  
 将简明的参数定义数组转换为标准 JSON Schema 对象。适合参数结构简单、类型为基础类型的场景。如果需要更复杂的描述（例如嵌套对象、数组、枚举等），可以直接手写 JSON Schema。
 
-## 示例一：数学计算器（使用 `ToJSONSchema` 简写）
+## 示例一：数学计算器（使用 `convertArgsToSchema` 简写）
 
 这个工具提供基本的算术运算，AI 可以用它来进行精确计算。
 
@@ -94,32 +97,35 @@ function divide({ a, b }) {
     return { result: a / b }
 }
 
-serveAsTool(
-    [
-        add,
-        '两个数相加',
-        ToJSONSchema([
+chatxt.runtime.exposeTool([
+    {
+        name: 'add',
+        description: '两个数相加',
+        parameters: chatxt.helpers.convertArgsToSchema([
             ['a', '第一个数', Number],
             ['b', '第二个数', Number],
         ]),
-    ],
-    [
-        multiply,
-        '两个数相乘',
-        ToJSONSchema([
+        func: add,
+    },
+    {
+        name: 'multiply',
+        description: '两个数相乘',
+        parameters: chatxt.helpers.convertArgsToSchema([
             ['a', '第一个数', Number],
             ['b', '第二个数', Number],
         ]),
-    ],
-    [
-        divide,
-        '两个数相除（a 除以 b）',
-        ToJSONSchema([
+        func: multiply,
+    },
+    {
+        name: 'divide',
+        description: '两个数相除（a 除以 b）',
+        parameters: chatxt.helpers.convertArgsToSchema([
             ['a', '被除数', Number],
             ['b', '除数', Number],
         ]),
-    ]
-)
+        func: divide,
+    },
+])
 ```
 
 **对话示例**
@@ -177,10 +183,13 @@ const fileInfoSchema = {
     required: ['filePath', 'fields'],
 }
 
-serveAsTool([
-    file_info,
-    '获取文件或文件夹的元信息，可指定需要返回的字段',
-    fileInfoSchema,
+chatxt.runtime.exposeTool([
+    {
+        name: 'file_info',
+        description: '获取文件或文件夹的元信息，可指定需要返回的字段',
+        parameters: fileInfoSchema,
+        func: file_info,
+    },
 ])
 ```
 
@@ -228,25 +237,30 @@ async function run_command({ command }) {
     return { stdout: stdout.trim(), stderr: stderr.trim() }
 }
 
-serveAsTool(
-    [
-        current_time,
-        '获取当前时间，支持指定时区',
-        ToJSONSchema([
+chatxt.runtime.exposeTool([
+    {
+        name: 'current_time',
+        description: '获取当前时间，支持指定时区',
+        parameters: chatxt.helpers.convertArgsToSchema([
             ['timezone', '时区，如 Asia/Shanghai', String, { optional: true }],
         ]),
-    ],
-    [
-        memory_usage,
-        '查看当前 Node 进程的内存使用情况',
-        { type: 'object', properties: {}, required: [] },
-    ],
-    [
-        run_command,
-        '执行一条系统命令（最多5秒超时）',
-        ToJSONSchema([['command', '要执行的命令', String]]),
-    ]
-)
+        func: current_time,
+    },
+    {
+        name: 'memory_usage',
+        description: '查看当前 Node 进程的内存使用情况',
+        parameters: { type: 'object', properties: {}, required: [] },
+        func: memory_usage,
+    },
+    {
+        name: 'run_command',
+        description: '执行一条系统命令（最多5秒超时）',
+        parameters: chatxt.helpers.convertArgsToSchema([
+            ['command', '要执行的命令', String],
+        ]),
+        func: run_command,
+    },
+])
 ```
 
 **对话示例**
@@ -262,7 +276,7 @@ AI 会依次调用 `current_time({ timezone: 'Asia/Shanghai' })` 和 `memory_usa
 
 ## 注意事项
 
-- **函数名即工具名**：重复加载同名工具会触发警告并忽略后者。
+- **`name` 字段即工具名**：AI 通过该名字调用工具，需与模型期望的一致；重复加载同名工具会触发警告并忽略后者。
 - **参数接收**：工具函数的第一个参数是一个对象，其键值由 AI 生成的 arguments JSON 决定。请确保参数 Schema 与函数实现一致。
 - **异步支持**：如果函数内有异步操作，直接声明为 `async`，框架会自动 `await`。
 - **错误处理**：函数内可抛出异常，框架会捕获并返回 `{ "error": "错误消息" }`。

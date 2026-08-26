@@ -1,7 +1,7 @@
 import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import type { ToolDefinition, ToolCall, ToolMessage } from '../types/chat-file'
+import type { ToolDef, ToolCall, ToolMessage } from '../types/chat-file'
 import type { ChatCompletionMessage, IPCMessage } from './ipc-types'
 import type { ChatSession } from '../session'
 import { printWarningMessage, printExceptionMessage } from '../tui'
@@ -15,7 +15,7 @@ export class ToolRunner {
     private processes = new Map<string, ChildProcess>()
     private toolDefinitions = new Map<
         string,
-        { definition: ToolDefinition; filePath: string }
+        { definition: ToolDef; filePath: string }
     >()
     private pendingRequests = new Map<
         string,
@@ -50,32 +50,30 @@ export class ToolRunner {
 
         child.stderr?.pipe(process.stderr)
 
-        const tools = await new Promise<ToolDefinition[]>(
-            (resolve, reject) => {
-                const onMessage = (msg: IPCMessage) => {
-                    if (msg.type === 'register') {
-                        resolve(msg.tools)
-                        child.removeListener('message', onMessage)
-                    } else if (msg.type === 'error') {
-                        reject(new Error(msg.message))
-                        child.removeListener('message', onMessage)
-                    }
-                }
-                child.on('message', onMessage)
-                child.on('error', reject)
-                setTimeout(() => {
-                    reject(
-                        new Error(
-                            `Tool process for ${absPath} registration timed out.`
-                        )
-                    )
+        const tools = await new Promise<ToolDef[]>((resolve, reject) => {
+            const onMessage = (msg: IPCMessage) => {
+                if (msg.type === 'register') {
+                    resolve(msg.toolDefs)
                     child.removeListener('message', onMessage)
-                }, 10000)
+                } else if (msg.type === 'error') {
+                    reject(new Error(msg.message))
+                    child.removeListener('message', onMessage)
+                }
             }
-        )
+            child.on('message', onMessage)
+            child.on('error', reject)
+            setTimeout(() => {
+                reject(
+                    new Error(
+                        `Tool process for ${absPath} registration timed out.`
+                    )
+                )
+                child.removeListener('message', onMessage)
+            }, 10000)
+        })
 
         for (const tool of tools) {
-            const name = tool.function.name
+            const name = tool.name
             if (this.toolDefinitions.has(name)) {
                 const existing = this.toolDefinitions.get(name)!
                 printWarningMessage(
@@ -124,7 +122,7 @@ export class ToolRunner {
         }
     }
 
-    getDefinitions(): ToolDefinition[] {
+    getDefinitions(): ToolDef[] {
         return Array.from(this.toolDefinitions.values()).map(v => v.definition)
     }
 
@@ -264,7 +262,7 @@ export class ToolRunner {
             messages: request.messages.filter(msg => msg.role !== 'system'),
             system:
                 request.messages.find(msg => msg.role === 'system') ?? null,
-            toolDefitions: [],
+            toolDefinitions: [],
         })
 
         const newConfig = { ...this.session.config }

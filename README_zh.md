@@ -147,7 +147,7 @@ AI 的回答（以及思维链、工具调用与结果）会流式写入同一�
 
 ## 工具系统
 
-工具即任意 Node.js 脚本，通过全局函数 `serveAsTool` 注册。每个工具文件运行在独立的 fork 子进程中：
+工具即任意 Node.js 脚本，通过全局注入的 `chatxt` 运行时对象注册。每个工具文件运行在独立的 fork 子进程中：
 
 ```js
 // weather.tool.js
@@ -155,18 +155,23 @@ function getWeather({ location }) {
     return { location, temperature: 22, unit: 'celsius', condition: 'sunny' }
 }
 
-serveAsTool(
-    getWeather,
-    '获取指定地点的当前天气',
-    ToJSONSchema([['location', '城市名', String]])
-)
+chatxt.runtime.exposeTool([
+    {
+        name: 'getWeather',
+        description: '获取指定地点的当前天气',
+        parameters: chatxt.helpers.convertArgsToSchema([
+            ['location', '城市名', String],
+        ]),
+        func: getWeather,
+    },
+])
 ```
 
-工具文件中可用的全局函数（无需 import）：
+工具文件中可用的全局 API（无需 import）：
 
-- `serveAsTool(fn, description, jsonSchema, ...)` —— 注册工具并上报定义
-- `chatCompletion(request)` —— 在工具内调用 LLM（由主进程代理，用量计入会话）
-- `ToJSONSchema(argsDefs)` —— 参数 JSON Schema 简写
+- `chatxt.runtime.exposeTool([{ name, description, parameters, func }])` —— 注册工具并上报定义
+- `chatxt.runtime.chatCompletion(request)` —— 在工具内调用 LLM（由主进程代理，用量计入会话）
+- `chatxt.helpers.convertArgsToSchema(argsDefs)` —— 参数 JSON Schema 简写
 
 完整指南见 [docs/tool_guide_zh.md](docs/tool_guide_zh.md)。
 

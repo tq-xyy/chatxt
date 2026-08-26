@@ -6,7 +6,7 @@ import type {
     Message,
     SystemMessage,
     ToolCall,
-    ToolDefinition,
+    ToolDef,
     ToolMessage,
 } from '../types/chat-file'
 import type { SSEMessage } from '../utils/sseStream'
@@ -118,23 +118,13 @@ function toAnthropicMessages(messages: Message[]): AnthropicMessage[] {
     return result
 }
 
-function toAnthropicTools(
-    toolDefitions: ToolDefinition[]
-): AnthropicToolDefinition[] {
-    return toolDefitions.map(td => ({
-        name: td.function.name,
-        description: td.function.description,
-        input_schema: td.function.parameters ?? { type: 'object' },
-    }))
-}
-
 // ======================== Adapter ========================
 
 export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
     private outputFlag: ChatRole | boolean = 'UNKNOWN'
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
-    private toolDefitions: ToolDefinition[] = []
+    private toolDefitions: AnthropicToolDefinition[] = []
     private sumUsage: NormalizedUsage = {
         input: 0,
         output: 0,
@@ -145,15 +135,21 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
     public async whenParsedChat({
         messages,
         system,
-        toolDefitions,
+        toolDefinitions,
     }: {
         messages: Message[]
         system: SystemMessage | null
-        toolDefitions: ToolDefinition[]
+        toolDefinitions: ToolDef[]
     }) {
         this.outputFlag = 'UNKNOWN'
         this.messages = system ? [system, ...messages] : messages
-        this.toolDefitions = toolDefitions
+        this.toolDefitions = toolDefinitions.map(
+            ({ name, description, parameters }) => ({
+                name,
+                description,
+                input_schema: parameters as unknown as Record<string, unknown>,
+            })
+        )
     }
 
     public async whenReadyToRequest(
@@ -170,7 +166,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
             model: gateway.model,
             max_tokens: config.maxTokens ?? 4096,
             messages: toAnthropicMessages(this.messages),
-            tools: toAnthropicTools(this.toolDefitions),
+            tools: this.toolDefitions,
             stream: true,
         }
 

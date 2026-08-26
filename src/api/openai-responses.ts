@@ -5,7 +5,7 @@ import type {
     Message,
     SystemMessage,
     ToolCall,
-    ToolDefinition,
+    ToolDef,
     ToolMessage,
 } from '../types/chat-file'
 import type { SSEMessage } from '../utils/sseStream'
@@ -108,25 +108,13 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
     return items
 }
 
-function toResponsesTools(
-    toolDefitions: ToolDefinition[]
-): ResponsesToolDefinition[] {
-    return toolDefitions.map(td => ({
-        type: 'function',
-        name: td.function.name,
-        description: td.function.description,
-        parameters: td.function.parameters,
-        strict: td.function.strict ?? null,
-    }))
-}
-
 // ======================== Adapter ========================
 
 export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEvent> {
     private outputFlag: ChatRole | boolean = 'UNKNOWN'
     private toolCallChunks: ToolCallChunk[] = []
     private messages: Message[] = []
-    private toolDefitions: ToolDefinition[] = []
+    private toolDefitions: ResponsesToolDefinition[] = []
     private sumUsage: NormalizedUsage = {
         input: 0,
         output: 0,
@@ -140,15 +128,23 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
     public async whenParsedChat({
         messages,
         system,
-        toolDefitions,
+        toolDefinitions,
     }: {
         messages: Message[]
         system: SystemMessage | null
-        toolDefitions: ToolDefinition[]
+        toolDefinitions: ToolDef[]
     }) {
         this.outputFlag = 'UNKNOWN'
         this.messages = system ? [system, ...messages] : messages
-        this.toolDefitions = toolDefitions
+        this.toolDefitions = toolDefinitions.map(
+            ({ name, description, parameters }) => ({
+                type: 'function' as const,
+                name,
+                description,
+                parameters: parameters as unknown as Record<string, unknown>,
+                strict: null,
+            })
+        )
     }
 
     public async whenReadyToRequest(
@@ -165,7 +161,7 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
         const reqBody: ResponsesRequest = {
             model: gateway.model,
             input: toResponsesInput(this.messages),
-            tools: toResponsesTools(this.toolDefitions),
+            tools: this.toolDefitions,
             stream: true,
         }
 

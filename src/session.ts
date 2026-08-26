@@ -139,7 +139,7 @@ export class ChatSession {
             this.api.whenParsedChat({
                 messages,
                 system,
-                toolDefitions: this.toolRunner.getDefinitions(),
+                toolDefinitions: this.toolRunner.getDefinitions(),
             })
 
             let retryTimes: number = 0

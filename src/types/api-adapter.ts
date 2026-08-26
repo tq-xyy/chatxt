@@ -2,7 +2,7 @@ import type { Config, ModelGateway } from '../config'
 import type {
     Message,
     SystemMessage,
-    ToolDefinition,
+    ToolDef,
     ToolMessage,
     FinishReason,
     ToolCallDelta,
@@ -45,7 +45,6 @@ interface FunctionCallStartEvent {
 
 interface FunctionCallDeltaEvent {
     type: 'function-call-delta'
-    /** only for display */
     delta: ToolCallDelta
 }
 
@@ -75,7 +74,7 @@ export interface APIAdapter<Chunk = unknown> {
     whenParsedChat(chat: {
         messages: Message[]
         system: SystemMessage | null
-        toolDefitions: ToolDefinition[]
+        toolDefinitions: ToolDef[]
     }): Promise<void>
     whenReadyToRequest(
         config: Config,

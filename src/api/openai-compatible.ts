@@ -4,7 +4,7 @@ import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type {
     Message,
     SystemMessage,
-    ToolDefinition,
+    ToolDef,
     ToolMessage,
     ToolCall,
 } from '../types/chat-file'
@@ -13,6 +13,7 @@ import type {
     OpenAICompatibleRequest,
     OpenAICompatibleUsage,
     OpenAICompatibleToolCallChunk,
+    OpenAICompatibleToolDefinition,
 } from '../types/apis/openai-compatible-api'
 import type { SSEMessage } from '../utils/sseStream'
 import type { NormalizedUsage } from '../common/usage'
@@ -100,20 +101,33 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
     private outputFlag: ChatRole | boolean = 'UNKNOWN'
     private toolCallChunks: OpenAICompatibleToolCallChunk[] = []
     private messages: Message[] = []
-    private toolDefitions: ToolDefinition[] = []
+    private toolDefitions: OpenAICompatibleToolDefinition[] = []
 
     public async whenParsedChat({
         messages,
         system,
-        toolDefitions,
+        toolDefinitions,
     }: {
         messages: Message[]
         system: SystemMessage | null
-        toolDefitions: ToolDefinition[]
+        toolDefinitions: ToolDef[]
     }) {
         this.outputFlag = 'UNKNOWN'
         this.messages = system ? [system, ...messages] : messages
-        this.toolDefitions = toolDefitions
+        this.toolDefitions =
+            toolDefinitions.map<OpenAICompatibleToolDefinition>(
+                ({ name, description, parameters }) => ({
+                    type: 'function' as const,
+                    function: {
+                        name,
+                        description,
+                        parameters: parameters as unknown as Record<
+                            string,
+                            unknown
+                        >,
+                    },
+                })
+            )
     }
 
     public async whenReadyToRequest(
