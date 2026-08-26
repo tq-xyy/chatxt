@@ -115,21 +115,27 @@ call_id: {"result": "..."}
 
 ### Directives (USER blocks only)
 
-Paths are resolved relative to the `.chat.txt` file.
+Paths are resolved relative to the `.chat.txt` file; directives inside an included file are resolved relative to that file.
 
-| Directive        | Description                                                                                                                   |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `@file(path)`    | Append the external file's content to the user message (referenced once per session; later references keep only the filename) |
-| `@include(path)` | Inline the external file's content every time                                                                                 |
-| `@tool(path)`    | Declare a tool file to load at session start                                                                                  |
+| Directive        | Description                                                                                                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@file(path)`    | Append the external file's content to the user message (referenced once per session; later references keep only the filename)                                                                                          |
+| `@include(path)` | Expand the external file as a preset: its content is re-parsed as directives (`@file` / `@tool` / `@include`; nesting allowed, circular includes are skipped with a warning); files containing role lines are rejected |
+| `@tool(path)`    | Declare a tool file to load at session start                                                                                                                                                                           |
 
 Example:
 
 ```text
 ----- CHAT ROLE: USER -----
-@tool(tools/weather.ts)
-@file(report.md)
+@include(presets/web-search.txt)
 What is the weather like?
+```
+
+The preset (`presets/web-search.txt`) can itself declare tools and files:
+
+```text
+@tool(websearch.ts)
+@file(notes.md)
 ```
 
 ## Configuration

@@ -1,3 +1,4 @@
+import { existsSync } from 'fs'
 import { readFile, appendFile } from 'fs/promises'
 import * as path from 'path'
 
@@ -70,6 +71,11 @@ function parseToBlock(chatText: string): Block[] {
         { role: 'UNKNOWN', components: [] },
     ]
 
+    // ignore shebang line
+    if (chatText.startsWith('#!')) {
+        chatText = chatText.replace(/^#![^\n]*\n?/, '')
+    }
+
     for (let line of chatText.split('\n')) {
         line = line.endsWith('\r') ? line.slice(0, -1) : line
         if (ROLE_SEPARATOR_REGEX.test(line)) {
@@ -121,7 +127,7 @@ export class ChatFile {
     config: Config
     private writeBuffer: string
     private writeTimer: ReturnType<typeof setTimeout> | null = null
-    protected referredFile: Set<string> = new Set()
+    protected referredFiles: Set<string> = new Set()
 
     constructor(chatFilePath: string, config: Config) {
         this.chatFilePath = chatFilePath
@@ -194,47 +200,95 @@ export class ChatFile {
     }
 
     private async applyDirectiveToMessage(
-        block: Block
+        block: Block,
+        parentInclude?: string[]
     ): Promise<[Message, Set<string>]> {
         let content = ''
         let suffixContent = ''
-        const toolSet = new Set<string>()
+        let toolSet = new Set<string>()
 
         for (const comp of block.components) {
-            const rootDir = path.dirname(this.chatFilePath)
+            const rootDir = parentInclude
+                ? path.dirname(parentInclude.at(-1)!)
+                : path.dirname(this.chatFilePath)
 
             if (typeof comp === 'string') {
                 content += comp
-            } else if (comp.type === 'tool') {
-                toolSet.add(path.join(rootDir, comp.arg))
-            } else if (comp.type === 'file') {
-                const filePath = path.join(rootDir, comp.arg)
+                continue
+            }
 
-                if (!this.referredFile.has(filePath)) {
+            const filePath = path.join(rootDir, comp.arg)
+            const filePathRel = path.relative(process.cwd(), filePath)
+            const filePathAbs = path.resolve(filePath)
+
+            if (comp.type === 'tool') {
+                if (!existsSync(filePath)) {
+                    printWarningMessage(
+                        `Tool Script (${filePathRel}) is not found`
+                    )
+                    continue
+                }
+                toolSet.add(filePath)
+            } else if (comp.type === 'file') {
+                if (!existsSync(filePath)) {
+                    printWarningMessage(
+                        `External file (${filePathRel}) is not found`
+                    )
+                    continue
+                }
+
+                if (!this.referredFiles.has(filePathAbs)) {
                     try {
                         const text = await readFile(filePath, 'utf-8')
 
                         suffixContent += `===========\nFile (${comp.arg}):\n${text}\n`
-                        this.referredFile.add(filePath)
+                        this.referredFiles.add(filePathAbs)
                     } catch (err) {
                         printWarningMessage(
-                            `External file open failed: ${filePath} (${(err as Error).toString()})`
+                            `External file open failed: ${filePathRel} (${(err as Error).toString()})`
                         )
                     }
                 }
 
                 content += `${comp.arg}`
             } else if (comp.type === 'include') {
-                const filePath = path.join(rootDir, comp.arg)
+                if (!existsSync(filePath)) {
+                    printWarningMessage(
+                        `Include file (${filePathRel}) is not found`
+                    )
+                    continue
+                }
 
                 try {
                     const text = await readFile(filePath, 'utf-8')
 
-                    content += `${text}\n`
-                    this.referredFile.add(filePath)
+                    const blocks = parseToBlock(text)
+
+                    if (blocks.length >= 2 || blocks[0].role !== 'UNKNOWN') {
+                        printWarningMessage(
+                            `Include file (${filePathRel}) should not include role line`
+                        )
+                        continue
+                    }
+
+                    if ((parentInclude || []).includes(filePathAbs)) {
+                        printWarningMessage(
+                            `Include file (${filePathRel}) should not include itself`
+                        )
+                        continue
+                    }
+
+                    const [includeMessages, includeToolSet] =
+                        await this.applyDirectiveToMessage(
+                            blocks[0] || { role: 'UNKNOWN', components: [] },
+                            [...(parentInclude || []), path.resolve(filePath)]
+                        )
+
+                    content += `${includeMessages.content}\n`
+                    toolSet = toolSet.union(includeToolSet)
                 } catch (err) {
                     printWarningMessage(
-                        `Include file open failed: ${filePath} (${(err as Error).toString()})`
+                        `Include file open failed: ${filePathRel} (${(err as Error).toString()})`
                     )
                 }
             } else {
@@ -319,18 +373,15 @@ export class ChatFile {
         toolPaths: string[]
         system: SystemMessage | null
     }> {
-        let chatText = await readFile(this.chatFilePath, 'utf-8')
-
-        // 忽略 shebang 行
-        if (chatText.startsWith('#!')) {
-            chatText = chatText.replace(/^#![^\n]*\n?/, '')
-        }
+        const chatText = await readFile(this.chatFilePath, 'utf-8')
 
         const blocks = parseToBlock(chatText)
 
         let system: SystemMessage | null = null
         const messages: Message[] = []
         const toolPaths = new Set<string>()
+
+        this.referredFiles = new Set()
 
         for (const block of blocks) {
             if (block.role === 'SYSTEM' || block.role === 'USER') {

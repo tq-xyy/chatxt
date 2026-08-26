@@ -26,7 +26,7 @@ src/
 
 **`.chat.txt` 文件格式**：文件由若干"角色块"组成，每块以一行分隔符开始；首行支持 shebang（`#!/usr/bin/env chatxt`），解析时忽略。角色块依次为 `SYSTEM`（系统提示词）、`USER`（用户输入，可含指令）、`ASSISTANT`（AI 正文）、`THINKING`（思维链，仅 `--emit-thinking` 时写入）、`TOOL`（每行：函数名 (调用ID): 参数JSON）、`TOOLRESPONSE`（每行：调用ID: 结果JSON）。
 
-**用户块内指令**（仅 `USER` 块解析，其余角色块原样透传；路径相对 `.chat.txt` 所在目录）：`@file(路径)` 把外部文件内容追加到消息尾部（同一文件一次会话只引用一次）；`@include(路径)` 每次都内联外部文件内容；`@tool(路径)` 声明工具文件，会话启动时加载。
+**用户块内指令**（仅 `USER` 块解析，其余角色块原样透传；路径相对 `.chat.txt` 所在目录）：`@file(路径)` 把外部文件内容追加到消息尾部（同一文件一次会话只引用一次）；`@include(路径)` 把外部文件作为预设递归展开——文件内容会被重新解析为指令（支持嵌套 `@file`/`@tool`/`@include`，内部路径相对该文件所在目录解析，循环引用跳过并警告，含角色行的文件被拒绝）；`@tool(路径)` 声明工具文件，会话启动时加载。
 
 **工具系统**：任意 Node.js 脚本（`.ts`/`.js`），通过全局对象 `chatxt` 的 `runtime.exposeTool()` 注册工具。工具文件被 `fork` 为常驻子进程，通过 IPC 与主进程通信；子进程内还可调用 `chatxt.runtime.chatCompletion()`（由主进程代理，用量计入会话）与 `chatxt.helpers.convertArgsToSchema()`（参数定义简写）。详见 `docs/tool_guide_zh.md`。
 
@@ -50,7 +50,7 @@ src/
 
 ### `fileobj.ts`（ChatFile）
 
-- 解析方向：`parseToBlock()` 按角色分隔符切块，行内解析指令 → `Message[]` + 工具路径；TOOL/TOOLRESPONSE 块还原为 `tool_calls`/tool 消息；`excludeHistoryToolCall` 开启时跳过历史工具调用
+- 解析方向：`parseToBlock()` 按角色分隔符切块（含 shebang 剥离），行内解析指令 → `Message[]` + 工具路径；`@include` 递归展开预设（校验无角色行、防循环引用、内部指令相对被包含文件解析、工具集向上合并）；TOOL/TOOLRESPONSE 块还原为 `tool_calls`/tool 消息；`excludeHistoryToolCall` 开启时跳过历史工具调用；`@file` 以绝对路径去重且每次 `buildPrompt` 重置引用集
 - 写入方向：内容先进内存缓冲，`emitInterval`（默认 16ms）防抖批量 `appendFile`，`flushBuffer()` 强制落盘；`emitToConsole` 时改为输出到终端不写文件
 
 ### `api/`（适配器）
