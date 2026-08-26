@@ -103,6 +103,22 @@ export const modelOfficalPricing: Record<string, Pricing | Pricing[]> = {
     ],
 
     // https://grok.docs-zh.com/zh-CN/developers/pricing （短上下文 < 200k）
+    'grok-4.6': [
+        {
+            input: 2.0,
+            output: 6.0,
+            cached: 0.3,
+            currency: 'USD',
+            limitions: [{ type: 'input-context', lessthan_k: 200 }],
+        },
+        {
+            input: 4.0,
+            output: 12.0,
+            cached: 0.6,
+            currency: 'USD',
+            limitions: [{ type: 'input-context', morethan_k: 200 }],
+        },
+    ],
     'grok-4.5': [
         {
             input: 2.0,
