@@ -163,14 +163,19 @@ export class ChatFile {
 
     public async appendRoleLine(
         role: ChatRole,
-        options?: { withoutNewLine?: boolean }
+        options?: { withPrefixNewLine?: boolean; withSuffixNewLine?: boolean }
     ) {
         options = options || {}
-        if (options.withoutNewLine) {
-            this.appendContent(`\n----- CHAT ROLE: ${role} -----`)
-        } else {
-            this.appendContent(`\n----- CHAT ROLE: ${role} -----\n`)
+
+        let text = `\n----- CHAT ROLE: ${role} -----`
+        if (options.withPrefixNewLine) {
+            text = '\n' + text
         }
+        if (options.withSuffixNewLine) {
+            text += '\n'
+        }
+
+        await this.appendContent(text)
     }
 
     private convertPlainBlockToMessage(block: Block): Message {
@@ -300,10 +305,13 @@ export class ChatFile {
     }
 
     public appendToolMessagesToToolResponseBlock(msgs: ToolMessage[]) {
-        this.appendRoleLine('TOOLRESPONSE')
-        for (const msg of msgs) {
-            this.appendContent(`${msg.tool_call_id}: ${msg.content}\n`)
-        }
+        this.appendRoleLine('TOOLRESPONSE', {
+            withPrefixNewLine: true,
+            withSuffixNewLine: true,
+        })
+        this.appendContent(
+            msgs.map(msg => `${msg.tool_call_id}: ${msg.content}`).join('\n')
+        )
     }
 
     async buildPrompt(): Promise<{

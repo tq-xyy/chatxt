@@ -188,7 +188,10 @@ export class ChatSession {
         switch (msg.type) {
             case 'reasoning-start':
                 if (this.config.emitThinking) {
-                    this.file.appendRoleLine('THINKING')
+                    this.file.appendRoleLine('THINKING', {
+                        withPrefixNewLine: true,
+                        withSuffixNewLine: true,
+                    })
                 }
                 this.reporter.setPrompt('Thinking...')
                 break
@@ -202,8 +205,10 @@ export class ChatSession {
                 break
 
             case 'content-start':
-                this.file.appendContent('\n')
-                this.file.appendRoleLine('ASSISTANT')
+                this.file.appendRoleLine('ASSISTANT', {
+                    withPrefixNewLine: true,
+                    withSuffixNewLine: true,
+                })
                 this.reporter.setPrompt('Generating Answer...')
                 break
             case 'content-delta':
@@ -211,11 +216,13 @@ export class ChatSession {
                 this.reporter.update(msg.delta)
                 break
             case 'content-end':
-                this.file.appendContent('\n')
                 break
 
             case 'function-call-start':
-                this.file.appendRoleLine('TOOL', { withoutNewLine: true })
+                this.file.appendRoleLine('TOOL', {
+                    withPrefixNewLine: true,
+                    withSuffixNewLine: false,
+                })
                 this.reporter.setPrompt('Generating Function Call...')
                 break
             case 'function-call-delta':
@@ -294,7 +301,10 @@ export class ChatSession {
         }
 
         if (status === 'ok') {
-            this.file.appendRoleLine('USER')
+            this.file.appendRoleLine('USER', {
+                withPrefixNewLine: true,
+                withSuffixNewLine: true,
+            })
         }
         await this.file.flushBuffer()
 
