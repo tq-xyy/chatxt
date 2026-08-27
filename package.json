@@ -1,13 +1,12 @@
 {
     "name": "chatxt",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "type": "module",
     "description": "Chatxt - AI conversations recorded as .chat.txt files",
     "bin": {
         "chatxt": "dist/cli.js"
     },
     "scripts": {
-        "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli.js",
         "typecheck": "tsc --noEmit",
         "lint": "eslint --fix . && prettier -w ."
     },
