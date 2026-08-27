@@ -1,9 +1,4 @@
-import type {
-    ExecuteMessage,
-    ChatCompletionResultMessage,
-    ExitMessage,
-    IPCMessage,
-} from './ipc-types'
+import type { IPCMessageFromChild, IPCMessageFromMain } from './ipc-types'
 import type {
     OpenAICompatibleRequest,
     OpenAICompatibleResponse,
@@ -29,7 +24,7 @@ export type ChatxtToolAPI = {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 func: (arg: any) => any
             }>[]
-        ): void
+        ): Promise<void>
         chatCompletion(
             request: Omit<OpenAICompatibleRequest, 'model'> & {
                 model?: string
@@ -41,32 +36,103 @@ export type ChatxtToolAPI = {
             argsDefs: [
                 string,
                 string,
-                StringConstructor | NumberConstructor | BooleanConstructor,
+                (
+                    | StringConstructor
+                    | NumberConstructor
+                    | BooleanConstructor
+                    | JSONSchema
+                ),
                 { optional?: boolean }?,
             ][]
         ): JSONSchema
     }
 }
 
+if (!process.send) {
+    throw new Error(
+        'FATAL: IPC channel not available. This script must be launched with child_process.fork.'
+    )
+}
+
+function sendToIPC(message: IPCMessageFromChild): Promise<void> {
+    return new Promise<void>((resovle, reject) => {
+        process.send!(message, error => (error ? reject(error) : resovle()))
+    })
+}
+
 const toolMap = new Map<string, RegisteredTool>()
-const toolDefs: ToolDef[] = []
+
 let nextChatId = 0
 const pendingChats = new Map<
-    string,
+    number,
     { resolve: (value: unknown) => void; reject: (err: Error) => void }
 >()
 
+process.on('message', async (msg: IPCMessageFromMain) => {
+    if (msg.type === 'executeTool') {
+        const { id, toolName, args } = msg
+        const tool = toolMap.get(toolName)
+
+        try {
+            if (!tool) throw new Error(`Tool "${toolName}" not found.`)
+            const result = tool.func(args)
+            const output = result instanceof Promise ? await result : result
+            sendToIPC({
+                type: 'toolResult',
+                id,
+                result: output,
+            })
+        } catch (err) {
+            let error: string
+            if (err instanceof Error) {
+                error = `${err.name}: ${err.message}`
+            } else {
+                error = String(err)
+            }
+            sendToIPC({
+                type: 'toolResult',
+                id,
+                error,
+            })
+        }
+    } else if (msg.type === 'chatCompletionResult') {
+        const pending = pendingChats.get(msg.id)
+        if (pending) {
+            if (msg.error) {
+                pending.reject(new Error(msg.error))
+            } else {
+                pending.resolve(msg.result)
+            }
+            pendingChats.delete(msg.id)
+        }
+    } else if (msg.type === 'exit') {
+        process.emit('beforeExit')
+        process.exit(0)
+    }
+})
+
+process.on('uncaughtException', error => {
+    sendToIPC({
+        type: 'error',
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+    })
+})
+
 const toolAPI: ChatxtToolAPI = {
     runtime: {
-        exposeTool(tools) {
+        async exposeTool(tools) {
+            const toolDefs: ToolDef[] = []
+
             for (const tool of tools) {
                 if (!tool) continue
                 const { name, func, description, parameters } = tool
                 if (toolMap.has(name)) {
-                    process.send!({
+                    await sendToIPC({
                         type: 'warning',
                         message: `Duplicate tool name "${name}" ignored.`,
-                    } as IPCMessage)
+                    })
                     continue
                 }
                 toolMap.set(name, {
@@ -78,75 +144,12 @@ const toolAPI: ChatxtToolAPI = {
                 toolDefs.push({ name, description, parameters })
             }
 
-            if (process.send) {
-                process.send({ type: 'register', toolDefs } as IPCMessage)
-            } else {
-                console.error(
-                    'FATAL: IPC channel not available. This script must be launched with child_process.fork.'
-                )
-                process.exit(1)
-            }
-
-            process.on(
-                'message',
-                async (
-                    msg:
-                        | ExecuteMessage
-                        | ChatCompletionResultMessage
-                        | ExitMessage
-                ) => {
-                    if (msg.type === 'execute') {
-                        const { id, toolName, args } = msg
-                        const tool = toolMap.get(toolName)
-                        try {
-                            if (!tool)
-                                throw new Error(
-                                    `Tool "${toolName}" not found.`
-                                )
-                            const result = tool.func(args)
-                            const output =
-                                result instanceof Promise
-                                    ? await result
-                                    : result
-                            process.send!({
-                                type: 'result',
-                                id,
-                                result: output,
-                            } as IPCMessage)
-                        } catch (err) {
-                            let error: string
-                            if (err instanceof Error) {
-                                error = `${err.name}:${err.message}\n${err.stack}`
-                            } else {
-                                error = String(err)
-                            }
-                            process.send!({
-                                type: 'result',
-                                id,
-                                error,
-                            } as IPCMessage)
-                        }
-                    } else if (msg.type === 'chatCompletionResult') {
-                        const pending = pendingChats.get(msg.id)
-                        if (pending) {
-                            if (msg.error) {
-                                pending.reject(new Error(msg.error))
-                            } else {
-                                pending.resolve(msg.result)
-                            }
-                            pendingChats.delete(msg.id)
-                        }
-                    } else if (msg.type === 'exit') {
-                        process.emit('beforeExit')
-                        process.exit(0)
-                    }
-                }
-            )
+            await sendToIPC({ type: 'registerTool', toolDefs })
         },
-        async chatCompletion(
-            request: OpenAICompatibleRequest
-        ): Promise<OpenAICompatibleResponse> {
-            const id = String(++nextChatId)
+        async chatCompletion(request) {
+            nextChatId++
+            const id = nextChatId
+
             return new Promise((resolve, reject) => {
                 pendingChats.set(id, {
                     resolve(value) {
@@ -154,11 +157,11 @@ const toolAPI: ChatxtToolAPI = {
                     },
                     reject,
                 })
-                process.send!({
+                sendToIPC({
                     type: 'chatCompletion',
                     id,
-                    request,
-                } as IPCMessage)
+                    request: request as OpenAICompatibleRequest,
+                })
             })
         },
     },
@@ -191,9 +194,7 @@ const toolAPI: ChatxtToolAPI = {
                         }
                         break
                     default:
-                        throw new Error(
-                            `Unsupported type for argument "${name}"`
-                        )
+                        properties[name] = { description, ...Type }
                 }
 
                 if (!optional) {

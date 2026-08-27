@@ -1,6 +1,6 @@
 # Chatxt 工具调用指南
 
-Chatxt 的工具系统让你能用几行代码将任意 Node.js 能力变成 AI 可直接调用的函数。无需处理标准输入输出，无需引入额外依赖，只需定义业务函数，然后通过 `serveAsTool` 注册即可。
+Chatxt 的工具系统让你能用几行代码将任意 Node.js 能力变成 AI 可直接调用的函数。无需处理进程通信，无需引入额外依赖，只需定义业务函数，然后通过 `chatxt.runtime.exposeTool` 注册即可。
 
 ---
 
@@ -13,14 +13,14 @@ Chatxt 在运行你的工具文件之前，会注入一个全局对象 `chatxt`�
 **声明**
 
 ```ts
-function exposeTool(
+async function exposeTool(
     tools: {
         name: string // 工具名（给 AI 调用）
         description: string // 功能描述（给 AI 看）
         parameters: JSONSchema // 参数 JSON Schema（给 AI 看）
         func: (args: any) => any // 业务函数，接收一个参数对象
     }[]
-): void
+): Promise<void>
 ```
 
 **功能**  
@@ -97,7 +97,7 @@ function divide({ a, b }) {
     return { result: a / b }
 }
 
-chatxt.runtime.exposeTool([
+await chatxt.runtime.exposeTool([
     {
         name: 'add',
         description: '两个数相加',
@@ -183,7 +183,7 @@ const fileInfoSchema = {
     required: ['filePath', 'fields'],
 }
 
-chatxt.runtime.exposeTool([
+await chatxt.runtime.exposeTool([
     {
         name: 'file_info',
         description: '获取文件或文件夹的元信息，可指定需要返回的字段',
@@ -237,7 +237,7 @@ async function run_command({ command }) {
     return { stdout: stdout.trim(), stderr: stderr.trim() }
 }
 
-chatxt.runtime.exposeTool([
+await chatxt.runtime.exposeTool([
     {
         name: 'current_time',
         description: '获取当前时间，支持指定时区',

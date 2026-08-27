@@ -2,33 +2,33 @@ import type { ToolDef } from '../types/chat-file'
 import type { OpenAICompatibleRequest } from '../types/apis/openai-compatible-api'
 
 export interface RegisterMessage {
-    type: 'register'
+    type: 'registerTool'
     toolDefs: ToolDef[]
 }
 
-export interface ExecuteMessage {
-    type: 'execute'
-    id: string
+export interface ToolExecuteMessage {
+    type: 'executeTool'
+    id: number
     toolName: string
     args: unknown
 }
 
-export interface ResultMessage {
-    type: 'result'
-    id: string
+export interface ToolResultMessage {
+    type: 'toolResult'
+    id: number
     result?: unknown
     error?: string
 }
 
 export interface ChatCompletionMessage {
     type: 'chatCompletion'
-    id: string
+    id: number
     request: OpenAICompatibleRequest
 }
 
 export interface ChatCompletionResultMessage {
     type: 'chatCompletionResult'
-    id: string
+    id: number
     result?: unknown
     error?: string
 }
@@ -44,15 +44,17 @@ export interface ExitMessage {
 
 export interface ErrorMessage {
     type: 'error'
+    name: string
     message: string
+    stack?: string
 }
 
-export type IPCMessage =
+export type IPCMessageFromMain =
+    ToolExecuteMessage | ChatCompletionResultMessage | ExitMessage
+
+export type IPCMessageFromChild =
     | RegisterMessage
-    | ExecuteMessage
-    | ResultMessage
+    | ToolResultMessage
     | ChatCompletionMessage
-    | ChatCompletionResultMessage
     | WarningMessage
-    | ExitMessage
     | ErrorMessage

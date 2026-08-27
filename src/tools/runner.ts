@@ -2,7 +2,11 @@ import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import type { ToolDef, ToolCall, ToolMessage } from '../types/chat-file'
-import type { ChatCompletionMessage, IPCMessage } from './ipc-types'
+import type {
+    ChatCompletionMessage,
+    IPCMessageFromMain,
+    IPCMessageFromChild,
+} from './ipc-types'
 import type { ChatSession } from '../session'
 import { printWarningMessage, printExceptionMessage } from '../tui'
 import { createAPIAdapter } from '../api'
@@ -11,17 +15,28 @@ import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-api'
 import { parseSSEStream } from '../utils/sseStream'
 
+function sendToChild(
+    child: ChildProcess,
+    message: IPCMessageFromMain
+): Promise<void> {
+    return new Promise<void>((resovle, reject) => {
+        child.send(message, error => (error ? reject(error) : resovle()))
+    })
+}
+
 export class ToolRunner {
     private processes = new Map<string, ChildProcess>()
     private toolDefinitions = new Map<
         string,
         { definition: ToolDef; filePath: string }
     >()
-    private pendingRequests = new Map<
-        string,
-        { resolve: (value: unknown) => void; reject: (err: Error) => void }
+    private pendingToolCalls = new Map<
+        ChildProcess,
+        Map<
+            number,
+            { resolve: (value: unknown) => void; reject: (err: Error) => void }
+        >
     >()
-    private childRequests = new Map<ChildProcess, Set<string>>()
     private requestIdCounter = 0
     private runtimePath: string
     private session: ChatSession
@@ -51,8 +66,8 @@ export class ToolRunner {
         child.stderr?.pipe(process.stderr)
 
         const tools = await new Promise<ToolDef[]>((resolve, reject) => {
-            const onMessage = (msg: IPCMessage) => {
-                if (msg.type === 'register') {
+            const onMessage = (msg: IPCMessageFromChild) => {
+                if (msg.type === 'registerTool') {
                     resolve(msg.toolDefs)
                     child.removeListener('message', onMessage)
                 } else if (msg.type === 'error') {
@@ -87,7 +102,7 @@ export class ToolRunner {
             }
         }
 
-        child.on('message', (msg: IPCMessage) =>
+        child.on('message', (msg: IPCMessageFromChild) =>
             this.handleMessage(msg, child)
         )
         child.on('error', err => {
@@ -99,17 +114,15 @@ export class ToolRunner {
                     this.toolDefinitions.delete(name)
             }
             this.processes.delete(absPath)
-            const requestIds = this.childRequests.get(child)
-            if (requestIds) {
-                for (const id of requestIds) {
-                    const pending = this.pendingRequests.get(id)
-                    if (pending)
-                        pending.reject(
-                            new Error(`Tool process for ${absPath} exited`)
-                        )
-                    this.pendingRequests.delete(id)
+
+            const calls = this.pendingToolCalls.get(child)
+            if (calls) {
+                for (const call of calls.values()) {
+                    call.reject(
+                        new Error(`Tool process for ${absPath} exited`)
+                    )
                 }
-                this.childRequests.delete(child)
+                this.pendingToolCalls.delete(child)
             }
         })
 
@@ -122,97 +135,129 @@ export class ToolRunner {
         }
     }
 
-    getDefinitions(): ToolDef[] {
+    async unloadTool(filePath: string) {
+        const absPath = path.resolve(filePath)
+        if (!this.processes.has(absPath)) return
+
+        await sendToChild(this.processes.get(absPath)!, { type: 'exit' })
+    }
+
+    getToolDefinitions(): ToolDef[] {
         return Array.from(this.toolDefinitions.values()).map(v => v.definition)
     }
 
     async execute(toolCall: ToolCall): Promise<ToolMessage> {
         const {
-            id,
-            function: { name, arguments: argsJson },
+            id: tool_call_id,
+            function: { name: toolName, arguments: argsJson },
         } = toolCall
-        const entry = this.toolDefinitions.get(name)
+
+        const entry = this.toolDefinitions.get(toolName)
+
         if (!entry) {
-            printWarningMessage(`Agent calls a unknown tool '${name}'.`)
+            printWarningMessage(`Agent calls a unknown tool '${toolName}'.`)
             return {
                 role: 'tool' as const,
-                tool_call_id: id,
+                tool_call_id,
                 content: JSON.stringify({
                     status: 'error',
                     message:
-                        `Tool '${name}' is not available. ` +
+                        `Tool '${toolName}' is not available. ` +
                         'Check your tool definition list for right spelling.',
                 }),
             }
         }
+
         const child = this.processes.get(entry.filePath)
         if (!child) {
             throw new Error(`Process for "${entry.filePath}" is not running.`)
         }
 
-        const requestId = String(++this.requestIdCounter)
-        if (!this.childRequests.has(child)) {
-            this.childRequests.set(child, new Set())
+        this.requestIdCounter++
+        const requestId = this.requestIdCounter
+
+        if (!this.pendingToolCalls.has(child)) {
+            this.pendingToolCalls.set(child, new Map())
         }
-        this.childRequests.get(child)!.add(requestId)
+
+        let callMap = this.pendingToolCalls.get(child)
+
+        if (!callMap) {
+            callMap = new Map()
+            this.pendingToolCalls.set(child, callMap)
+        }
 
         const args = JSON.parse(argsJson)
 
-        return new Promise(resolve => {
-            this.pendingRequests.set(requestId, {
-                resolve,
-                reject(err) {
-                    resolve({
-                        role: 'tool' as const,
-                        tool_call_id: toolCall.id,
-                        content: JSON.stringify({
-                            status: 'error',
-                            message: `Error executing tool ${toolCall.function.name}: ${err.message}`,
-                        }),
-                    })
-                },
+        try {
+            const result = await new Promise((resolve, reject) => {
+                callMap.set(requestId, { resolve, reject })
+
+                sendToChild(child, {
+                    type: 'executeTool',
+                    id: requestId,
+                    toolName,
+                    args,
+                })
             })
-            child.send({
-                type: 'execute',
-                id: requestId,
-                toolName: name,
-                args,
-            })
-        }).then(result => ({
-            role: 'tool' as const,
-            tool_call_id: id,
-            content:
-                typeof result === 'string' ? result : JSON.stringify(result),
-        }))
+
+            return {
+                role: 'tool' as const,
+                tool_call_id,
+                content:
+                    typeof result === 'string'
+                        ? result
+                        : JSON.stringify(result),
+            }
+        } catch (err) {
+            const message = `Error when executing tool ${toolName}: ${err instanceof Error ? err.message : err}`
+            return {
+                role: 'tool' as const,
+                tool_call_id,
+                content: JSON.stringify({
+                    status: 'error',
+                    message,
+                }),
+            }
+        }
     }
 
     executeAll(toolCalls: ToolCall[]): Promise<ToolMessage[]> {
         return Promise.all(toolCalls.map(tc => this.execute(tc)))
     }
 
-    close(): void {
+    async close(): Promise<void> {
         for (const child of this.processes.values()) {
-            child.send({ type: 'exit' })
+            await sendToChild(child, { type: 'exit' })
         }
     }
 
-    private handleMessage(msg: IPCMessage, child: ChildProcess) {
-        if (msg.type === 'result') {
-            const pending = this.pendingRequests.get(msg.id)
+    private async handleMessage(
+        msg: IPCMessageFromChild,
+        child: ChildProcess
+    ) {
+        if (msg.type === 'toolResult') {
+            const pending = this.pendingToolCalls.get(child)?.get(msg.id)
+
             if (pending) {
                 if (msg.error) {
                     pending.reject(new Error(msg.error))
                 } else {
                     pending.resolve(msg.result)
                 }
-                this.pendingRequests.delete(msg.id)
-                const ids = this.childRequests.get(child)
+                this.pendingToolCalls.get(child)?.delete(msg.id)
+                const ids = this.pendingToolCalls.get(child)
                 if (ids) ids.delete(msg.id)
             }
         } else if (msg.type === 'chatCompletion') {
-            this.subAgentChatCompletion(msg, child)
+            await this.subAgentChatCompletion(msg, child)
         } else if (msg.type === 'warning') {
             printWarningMessage(msg.message)
+        } else if (msg.type === 'error') {
+            const err = new Error(msg.message)
+            err.name = msg.name
+            err.stack = msg.stack
+            printExceptionMessage(err)
         }
     }
 
@@ -223,25 +268,19 @@ export class ToolRunner {
         const { id, request } = msg
 
         if (request.stream) {
-            child.send({
+            sendToChild(child, {
                 type: 'chatCompletionResult',
                 id,
-                error: {
-                    message:
-                        'chatCompletion not support stream, please use `fetch`',
-                },
+                error: 'chatCompletion not support stream, please use `fetch`',
             })
             return
         }
 
         if (request.tools) {
-            child.send({
+            sendToChild(child, {
                 type: 'chatCompletionResult',
                 id,
-                error: {
-                    message:
-                        'chatCompletion not support tools, please use `fetch`',
-                },
+                error: 'chatCompletion not support tools, please use `fetch`',
             })
             return
         }
@@ -341,9 +380,9 @@ export class ToolRunner {
                 await api.whenRecvivedChunk(streamMessage, emit)
             }
 
-            child.send({ type: 'chatCompletionResult', id, result })
+            sendToChild(child, { type: 'chatCompletionResult', id, result })
         } catch (err) {
-            child.send({
+            sendToChild(child, {
                 type: 'chatCompletionResult',
                 id,
                 error: (err as { message: string }).message,

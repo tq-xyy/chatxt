@@ -139,7 +139,7 @@ export class ChatSession {
             this.api.whenParsedChat({
                 messages,
                 system,
-                toolDefinitions: this.toolRunner.getDefinitions(),
+                toolDefinitions: this.toolRunner.getToolDefinitions(),
             })
 
             let retryTimes: number = 0
@@ -319,7 +319,7 @@ export class ChatSession {
             totalCost: computeTotalCost(this.sumUsages, this.config),
         })
 
-        this.toolRunner.close()
+        await this.toolRunner.close()
     }
 
     public addUsageRecord(usage: NormalizedUsage) {

@@ -61,12 +61,12 @@ const DIRECTIVE_MATCH_REGEX = new RegExp(
     'g'
 )
 
-type Block = {
+type ParsedBlock = {
     role: ChatRole
     components: (string | Directive)[]
 }
 
-function parseToBlock(chatText: string): Block[] {
+function parseToBlock(chatText: string): ParsedBlock[] {
     const blocks: { role: ChatRole; components: (string | Directive)[] }[] = [
         { role: 'UNKNOWN', components: [] },
     ]
@@ -184,7 +184,7 @@ export class ChatFile {
         await this.appendContent(text)
     }
 
-    private convertPlainBlockToMessage(block: Block): Message {
+    private convertPlainBlockToMessage(block: ParsedBlock): Message {
         let content = ''
 
         for (const comp of block.components) {
@@ -200,7 +200,7 @@ export class ChatFile {
     }
 
     private async applyDirectiveToMessage(
-        block: Block,
+        block: ParsedBlock,
         parentInclude?: string[]
     ): Promise<[Message, Set<string>]> {
         let content = ''
@@ -311,7 +311,7 @@ export class ChatFile {
         ]
     }
 
-    private parseToolBlockToToolCalls(block: Block): ToolCall[] {
+    private parseToolBlockToToolCalls(block: ParsedBlock): ToolCall[] {
         const toolRegex = /^([\w.]+)\s*\(([^)]+)\):\s*(.*)$/
 
         const toolCalls: ToolCall[] = []
@@ -345,7 +345,7 @@ export class ChatFile {
         }
     }
 
-    private parseToolResponseBlockToMessages(block: Block): Message[] {
+    private parseToolResponseBlockToMessages(block: ParsedBlock): Message[] {
         const toolMessages: Message[] = []
 
         for (const line of block.components.join('').split('\n')) {
