@@ -1,24 +1,23 @@
 import type { Config, ModelGateway } from '../config'
-import type { ChatRole } from '../fileobj'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
+import type { Message, ToolDef, FinishReason } from '../types/chat-file'
 import type {
-    Message,
-    SystemMessage,
-    ToolDef,
-    ToolMessage,
-    ToolCall,
-} from '../types/chat-file'
-import type {
+    OpenAICompatibleAssistantMessage,
     OpenAICompatibleChunk,
+    OpenAICompatibleMessage,
     OpenAICompatibleRequest,
     OpenAICompatibleUsage,
+    OpenAICompatibleToolCall,
     OpenAICompatibleToolCallChunk,
     OpenAICompatibleToolDefinition,
 } from '../types/apis/openai-compatible-api'
 import type { SSEMessage } from '../utils/sseStream'
 import type { NormalizedUsage } from '../common/usage'
+import { assertOk } from './http'
 
-export async function chatCompletion(
+type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
+
+async function chatCompletion(
     request: OpenAICompatibleRequest,
     api: {
         endpoint: string
@@ -34,25 +33,7 @@ export async function chatCompletion(
         body: JSON.stringify(request),
     })
 
-    if (!resp.ok) {
-        let errorText = await resp.text()
-        try {
-            const errorJSON = JSON.parse(errorText)
-            errorText = errorJSON.error.message || errorText
-        } catch {
-            // use original error text
-        }
-
-        const statusText =
-            resp.statusText.length > 0
-                ? `${resp.status} ${resp.statusText}`
-                : `${resp.status}`
-
-        throw new Error(
-            `API Request Failed (${statusText}), error message: ${errorText}`
-        )
-    }
-
+    assertOk(resp)
     return resp
 }
 
@@ -68,56 +49,89 @@ function normalizeUsage(usage: OpenAICompatibleUsage): NormalizedUsage {
     }
 }
 
-export function mergeToolCallChunks(
-    toolCallChunks: OpenAICompatibleToolCallChunk[]
-): ToolCall[] {
-    const toolCallList: ToolCall[] = []
-    for (const chunk of toolCallChunks) {
-        if (chunk.function.name) {
-            // 复制对象，避免累加时污染 this.toolCallChunks
-            toolCallList.push({
-                index: chunk.index,
-                id: chunk.id!,
+/** 平铺消息 → OpenAI 消息列表（FunctionCall 挂到前置 assistant 的 tool_calls） */
+function toOpenAIMessages(
+    messages: Message[],
+    reasoningField: 'reasoning_content' | 'reasoning'
+): OpenAICompatibleMessage[] {
+    const result: OpenAICompatibleMessage[] = []
+    let lastAssistant: OpenAICompatibleAssistantMessage | null = null
+
+    for (const msg of messages) {
+        if (msg.role === 'system') {
+            result.push({ role: 'system', content: msg.content })
+        } else if (msg.role === 'user') {
+            lastAssistant = null
+            result.push({ role: 'user', content: msg.content })
+        } else if (msg.role === 'assistant') {
+            const apiMsg: OpenAICompatibleAssistantMessage = {
+                role: 'assistant',
+                content: msg.content ?? '',
+            }
+            if (msg.reasoning_content) {
+                apiMsg[reasoningField] = msg.reasoning_content
+            }
+            lastAssistant = apiMsg
+            result.push(apiMsg)
+        } else if (msg.role === 'tool-call') {
+            const call: OpenAICompatibleToolCall = {
+                index: lastAssistant?.tool_calls?.length ?? 0,
+                id: msg.callId,
                 type: 'function',
                 function: {
-                    name: chunk.function.name,
-                    arguments: chunk.function.arguments,
+                    name: msg.name,
+                    arguments: msg.arguments,
                 },
-            })
-        } else {
-            const index = toolCallList.findIndex(
-                block => block.index === chunk.index
-            )
-            if (index === -1) {
-                throw new Error(`unexcepted tool call index: ${chunk.index}`)
             }
-            toolCallList[index].function.arguments += chunk.function.arguments
+            if (lastAssistant) {
+                lastAssistant.tool_calls = [
+                    ...(lastAssistant.tool_calls ?? []),
+                    call,
+                ]
+            } else {
+                const apiMsg: OpenAICompatibleAssistantMessage = {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [call],
+                }
+                lastAssistant = apiMsg
+                result.push(apiMsg)
+            }
+        } else if (msg.role === 'tool-result') {
+            result.push({
+                role: 'tool',
+                tool_call_id: msg.callId,
+                content: msg.content,
+            })
         }
     }
-    return toolCallList
+    return result
 }
 
 export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleChunk> {
-    private outputFlag: ChatRole | boolean = 'UNKNOWN'
-    private toolCallChunks: OpenAICompatibleToolCallChunk[] = []
-    private messages: Message[] = []
-    private toolDefitions: OpenAICompatibleToolDefinition[] = []
+    private outputFlag: OutputFlag = 'UNKNOWN'
+    private reasoningField: 'reasoning_content' | 'reasoning' =
+        'reasoning_content'
+    private pendingFinishReason: FinishReason | null = null
+    private pendingUsage: NormalizedUsage | null = null
 
-    public async whenParsedChat({
-        messages,
-        system,
-        toolDefinitions,
-    }: {
-        messages: Message[]
-        system: SystemMessage | null
+    public async buildRequest(
+        config: Config,
+        gateway: ModelGateway,
+        messages: Message[],
         toolDefinitions: ToolDef[]
-    }) {
+    ): Promise<Response> {
         this.outputFlag = 'UNKNOWN'
-        this.messages = system ? [system, ...messages] : messages
-        this.toolDefitions =
-            toolDefinitions.map<OpenAICompatibleToolDefinition>(
+        this.pendingFinishReason = null
+        this.pendingUsage = null
+
+        const reqBody: OpenAICompatibleRequest = {
+            model: gateway.model,
+            messages: toOpenAIMessages(messages, this.reasoningField),
+            stream_options: { include_usage: true },
+            tools: toolDefinitions.map<OpenAICompatibleToolDefinition>(
                 ({ name, description, parameters }) => ({
-                    type: 'function' as const,
+                    type: 'function',
                     function: {
                         name,
                         description,
@@ -127,44 +141,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
                         >,
                     },
                 })
-            )
-    }
-
-    public async whenReadyToRequest(
-        config: Config,
-        gateway: ModelGateway,
-        toolMessages?: ToolMessage[]
-    ) {
-        this.toolCallChunks = []
-        if (toolMessages) {
-            this.messages.push(...toolMessages)
-        }
-
-        // clear reasoning place mark
-        this.messages
-            .filter(msg => msg.role === 'assistant')
-            .forEach(msg => {
-                if (
-                    typeof msg.reasoning === 'string' &&
-                    msg.reasoning.length === 0
-                ) {
-                    delete msg.reasoning
-                }
-                if (
-                    typeof msg.reasoning_content === 'string' &&
-                    msg.reasoning_content.length === 0
-                ) {
-                    delete msg.reasoning_content
-                }
-            })
-
-        const reqBody: OpenAICompatibleRequest = {
-            model: gateway.model,
-            /* leave it default */
-            // thinking: { type: 'enabled' },
-            messages: this.messages,
-            stream_options: { include_usage: true },
-            tools: this.toolDefitions,
+            ),
             stream: true,
         }
 
@@ -189,30 +166,16 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
             reqBody.response_format = { type: 'json_object' }
         }
 
-        const resp = await chatCompletion(reqBody, gateway)
-
-        this.messages.push({
-            role: 'assistant',
-            content: '',
-
-            // mark place for compatible
-            reasoning_content: '',
-            reasoning: '',
-        })
-
-        return resp
+        return chatCompletion(reqBody, gateway)
     }
 
-    public async whenRecvivedChunk(
+    public async handleChunk(
         message: SSEMessage<OpenAICompatibleChunk, string>,
         emit: (event: StreamEvent) => Promise<void>
     ) {
         const chunk = message.data
         if (chunk.usage) {
-            await emit({
-                type: 'response-end',
-                usage: normalizeUsage(chunk.usage),
-            })
+            this.pendingUsage = normalizeUsage(chunk.usage)
         }
 
         if (chunk?.choices.length === 0) {
@@ -230,20 +193,16 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
             OpenAICompatibleToolCallChunk[] | null | undefined =
             choice.delta?.tool_calls
 
-        if (reasoning && this.outputFlag !== 'THINKING') {
-            this.outputFlag = 'THINKING'
-            await emit({ type: 'reasoning-start' })
-        }
         if (reasoning) {
-            const lastMessage = this.messages.at(-1)
-            if (lastMessage?.role === 'assistant') {
-                if (choice.delta?.reasoning_content) {
-                    lastMessage.reasoning_content += reasoning
-                } else {
-                    lastMessage.reasoning += reasoning
-                }
+            if (this.outputFlag !== 'THINKING') {
+                this.outputFlag = 'THINKING'
+                await emit({ type: 'reasoning-start' })
             }
-
+            if (choice.delta?.reasoning_content) {
+                this.reasoningField = 'reasoning_content'
+            } else if (choice.delta?.reasoning) {
+                this.reasoningField = 'reasoning'
+            }
             await emit({ type: 'reasoning-delta', delta: reasoning })
         }
 
@@ -252,7 +211,6 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
             await emit({ type: 'content-start' })
         }
         if (content) {
-            this.messages.at(-1)!.content += content
             await emit({ type: 'content-delta', delta: content })
         }
 
@@ -283,28 +241,27 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
                         },
                     })
                 }
-
-                this.toolCallChunks.push(tc)
             }
         }
 
         if (choice.finish_reason === 'tool_calls') {
-            const lastMessage = this.messages.at(-1)
             // discard duplicate tool calls
             if (this.outputFlag !== 'UNKNOWN') {
-                const toolCalls = mergeToolCallChunks(this.toolCallChunks)
-                if (lastMessage?.role === 'assistant') {
-                    lastMessage.tool_calls = toolCalls
-                }
-
                 this.outputFlag = 'UNKNOWN'
                 await emit({ type: 'function-call-end' })
             }
-        } else if (choice.finish_reason) {
-            this.outputFlag = 'UNKNOWN'
+        }
+        if (choice.finish_reason) {
+            this.pendingFinishReason = choice.finish_reason
+        }
+    }
+
+    public async handleStreamEnd(emit: (event: StreamEvent) => Promise<void>) {
+        if (this.pendingFinishReason || this.pendingUsage) {
             await emit({
                 type: 'response-end',
-                finishReason: choice.finish_reason,
+                finishReason: this.pendingFinishReason ?? undefined,
+                usage: this.pendingUsage ?? undefined,
             })
         }
     }

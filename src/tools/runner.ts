@@ -1,7 +1,12 @@
 import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import type { ToolDef, ToolCall, ToolMessage } from '../types/chat-file'
+import type {
+    ToolDef,
+    FunctionCallMessage,
+    FunctionCallResultMessage,
+    Message,
+} from '../types/chat-file'
 import type {
     ChatCompletionMessage,
     IPCMessageFromMain,
@@ -146,19 +151,18 @@ export class ToolRunner {
         return Array.from(this.toolDefinitions.values()).map(v => v.definition)
     }
 
-    async execute(toolCall: ToolCall): Promise<ToolMessage> {
-        const {
-            id: tool_call_id,
-            function: { name: toolName, arguments: argsJson },
-        } = toolCall
+    async execute(
+        toolCall: FunctionCallMessage
+    ): Promise<FunctionCallResultMessage> {
+        const { callId, name: toolName, arguments: argsJson } = toolCall
 
         const entry = this.toolDefinitions.get(toolName)
 
         if (!entry) {
             printWarningMessage(`Agent calls a unknown tool '${toolName}'.`)
             return {
-                role: 'tool' as const,
-                tool_call_id,
+                role: 'tool-result' as const,
+                callId,
                 content: JSON.stringify({
                     status: 'error',
                     message:
@@ -202,8 +206,8 @@ export class ToolRunner {
             })
 
             return {
-                role: 'tool' as const,
-                tool_call_id,
+                role: 'tool-result' as const,
+                callId,
                 content:
                     typeof result === 'string'
                         ? result
@@ -212,8 +216,8 @@ export class ToolRunner {
         } catch (err) {
             const message = `Error when executing tool ${toolName}: ${err instanceof Error ? err.message : err}`
             return {
-                role: 'tool' as const,
-                tool_call_id,
+                role: 'tool-result' as const,
+                callId,
                 content: JSON.stringify({
                     status: 'error',
                     message,
@@ -222,7 +226,9 @@ export class ToolRunner {
         }
     }
 
-    executeAll(toolCalls: ToolCall[]): Promise<ToolMessage[]> {
+    executeAll(
+        toolCalls: FunctionCallMessage[]
+    ): Promise<FunctionCallResultMessage[]> {
         return Promise.all(toolCalls.map(tc => this.execute(tc)))
     }
 
@@ -297,12 +303,41 @@ export class ToolRunner {
 
         const api: APIAdapter = createAPIAdapter(apiGateway.endpointType)
 
-        await api.whenParsedChat({
-            messages: request.messages.filter(msg => msg.role !== 'system'),
-            system:
-                request.messages.find(msg => msg.role === 'system') ?? null,
-            toolDefinitions: [],
-        })
+        const messages: Message[] = []
+        for (const m of request.messages) {
+            if (m.role === 'system') {
+                messages.push({ role: 'system', content: m.content })
+            } else if (m.role === 'user') {
+                messages.push({ role: 'user', content: m.content })
+            } else if (m.role === 'assistant') {
+                if (m.tool_calls?.length) {
+                    messages.push({
+                        role: 'assistant',
+                        content: m.content ?? '',
+                    })
+                    for (const tc of m.tool_calls) {
+                        messages.push({
+                            role: 'tool-call',
+                            callId: tc.id,
+                            name: tc.function.name,
+                            arguments: tc.function.arguments,
+                        })
+                    }
+                } else {
+                    messages.push({
+                        role: 'assistant',
+                        content: m.content ?? '',
+                        reasoning_content: m.reasoning_content ?? '',
+                    })
+                }
+            } else if (m.role === 'tool') {
+                messages.push({
+                    role: 'tool-result',
+                    callId: m.tool_call_id,
+                    content: m.content,
+                })
+            }
+        }
 
         const newConfig = { ...this.session.config }
 
@@ -374,11 +409,17 @@ export class ToolRunner {
         }
 
         try {
-            const resp = await api.whenReadyToRequest(newConfig, apiGateway)
+            const resp = await api.buildRequest(
+                newConfig,
+                apiGateway,
+                messages,
+                []
+            )
 
             for await (const streamMessage of parseSSEStream(resp)) {
-                await api.whenRecvivedChunk(streamMessage, emit)
+                await api.handleChunk(streamMessage, emit)
             }
+            await api.handleStreamEnd(emit)
 
             sendToChild(child, { type: 'chatCompletionResult', id, result })
         } catch (err) {

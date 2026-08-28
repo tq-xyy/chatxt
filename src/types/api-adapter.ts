@@ -1,11 +1,9 @@
 import type { Config, ModelGateway } from '../config'
 import type {
     Message,
-    SystemMessage,
     ToolDef,
-    ToolMessage,
     FinishReason,
-    ToolCallDelta,
+    FunctionCallDelta,
 } from './chat-file'
 import type { SSEMessage } from '../utils/sseStream'
 
@@ -45,7 +43,7 @@ interface FunctionCallStartEvent {
 
 interface FunctionCallDeltaEvent {
     type: 'function-call-delta'
-    delta: ToolCallDelta
+    delta: FunctionCallDelta
 }
 
 interface FunctionCallEndEvent {
@@ -71,18 +69,20 @@ export type StreamEvent =
     | ResponseEndEvent
 
 export interface APIAdapter<Chunk = unknown> {
-    whenParsedChat(chat: {
-        messages: Message[]
-        system: SystemMessage | null
-        toolDefinitions: ToolDef[]
-    }): Promise<void>
-    whenReadyToRequest(
+    /**
+     * 把会话消息转成协议请求并发送，每轮调用一次。
+     * 实现方不得修改传入的 messages。
+     */
+    buildRequest(
         config: Config,
         gateway: ModelGateway,
-        toolMessages?: ToolMessage[]
+        messages: Message[],
+        toolDefinitions: ToolDef[]
     ): Promise<Response>
-    whenRecvivedChunk(
+    handleChunk(
         message: SSEMessage<Chunk>,
         emit: (event: StreamEvent) => Promise<void>
     ): Promise<void>
+    /** SSE 流结束后调用，发射剩余事件（如 response-end） */
+    handleStreamEnd(emit: (event: StreamEvent) => Promise<void>): Promise<void>
 }

@@ -3,11 +3,13 @@ import { readFile, appendFile } from 'fs/promises'
 import * as path from 'path'
 
 import type {
+    AssistantMessage,
     Message,
+    FunctionCallDelta,
+    FunctionCallMessage,
+    FunctionCallResultMessage,
     SystemMessage,
-    ToolCall,
-    ToolCallDelta,
-    ToolMessage,
+    UserMessage,
 } from './types/chat-file'
 import type { Config } from './config'
 import { printWarningMessage } from './tui'
@@ -184,7 +186,7 @@ export class ChatFile {
         await this.appendContent(text)
     }
 
-    private convertPlainBlockToMessage(block: ParsedBlock): Message {
+    private convertPlainBlockToMessage(block: ParsedBlock): AssistantMessage {
         let content = ''
 
         for (const comp of block.components) {
@@ -194,7 +196,7 @@ export class ChatFile {
         }
 
         return {
-            role: block.role.toLowerCase() as 'system' | 'user' | 'assistant',
+            role: 'assistant',
             content: content.trimEnd(),
         }
     }
@@ -202,7 +204,7 @@ export class ChatFile {
     private async applyDirectiveToMessage(
         block: ParsedBlock,
         parentInclude?: string[]
-    ): Promise<[Message, Set<string>]> {
+    ): Promise<[SystemMessage | UserMessage, Set<string>]> {
         let content = ''
         let suffixContent = ''
         let toolSet = new Set<string>()
@@ -311,30 +313,27 @@ export class ChatFile {
         ]
     }
 
-    private parseToolBlockToToolCalls(block: ParsedBlock): ToolCall[] {
+    private parseToolCallBlock(block: ParsedBlock): FunctionCallMessage[] {
         const toolRegex = /^([\w.]+)\s*\(([^)]+)\):\s*(.*)$/
 
-        const toolCalls: ToolCall[] = []
+        const calls: FunctionCallMessage[] = []
 
         for (const line of block.components.join('').split('\n')) {
             const match = line.match(toolRegex)
             if (match) {
                 const [, name, id, callString] = match
-                toolCalls.push({
-                    index: toolCalls.length + 1,
-                    type: 'function',
-                    id,
-                    function: {
-                        name,
-                        arguments: callString,
-                    },
+                calls.push({
+                    role: 'tool-call',
+                    callId: id,
+                    name,
+                    arguments: callString,
                 })
             }
         }
-        return toolCalls
+        return calls
     }
 
-    public appendToolCallChunkToToolBlock(delta: ToolCallDelta) {
+    public appendToolCallChunkToToolBlock(delta: FunctionCallDelta) {
         if (delta.type === 'callee') {
             this.appendContent(
                 `\n${delta.callee} (${delta.callId}): ${delta.arguments || ''}`
@@ -345,41 +344,43 @@ export class ChatFile {
         }
     }
 
-    private parseToolResponseBlockToMessages(block: ParsedBlock): Message[] {
-        const toolMessages: Message[] = []
+    private parseToolResponseBlock(
+        block: ParsedBlock
+    ): FunctionCallResultMessage[] {
+        const toolMessages: FunctionCallResultMessage[] = []
 
         for (const line of block.components.join('').split('\n')) {
             const [toolId, jsonStr] = line.split(/:(.+)/)
             if (toolId.length === 0 || !jsonStr) continue
             toolMessages.push({
-                role: 'tool',
+                role: 'tool-result',
+                callId: toolId,
                 content: jsonStr,
-                tool_call_id: toolId,
             })
         }
         return toolMessages
     }
 
-    public appendToolMessagesToToolResponseBlock(msgs: ToolMessage[]) {
+    public appendToolMessagesToToolResponseBlock(
+        msgs: FunctionCallResultMessage[]
+    ) {
         this.appendRoleLine('TOOLRESPONSE', {
             withPrefixNewLine: true,
             withSuffixNewLine: true,
         })
         this.appendContent(
-            msgs.map(msg => `${msg.tool_call_id}: ${msg.content}`).join('\n')
+            msgs.map(msg => `${msg.callId}: ${msg.content}`).join('\n')
         )
     }
 
     async buildPrompt(): Promise<{
         messages: Message[]
         toolPaths: string[]
-        system: SystemMessage | null
     }> {
         const chatText = await readFile(this.chatFilePath, 'utf-8')
 
         const blocks = parseToBlock(chatText)
 
-        let system: SystemMessage | null = null
         const messages: Message[] = []
         const toolPaths = new Set<string>()
 
@@ -394,12 +395,12 @@ export class ChatFile {
                 }
 
                 if (msg.role === 'system') {
-                    if (system !== null) {
+                    if (messages.some(m => m.role === 'system')) {
                         printWarningMessage(
                             'A chat file must only have one SYSTEM block'
                         )
                     } else {
-                        system = msg
+                        messages.unshift(msg)
                     }
                 } else {
                     messages.push(msg)
@@ -408,27 +409,31 @@ export class ChatFile {
             if (block.role === 'ASSISTANT') {
                 messages.push(this.convertPlainBlockToMessage(block))
             }
-            if (block.role === 'TOOL' && !this.config.excludeHistoryToolCall) {
-                const lastMessage = messages[messages.length - 1]
-                const tool_calls = this.parseToolBlockToToolCalls(block)
-                if (lastMessage.role === 'assistant') {
-                    lastMessage.tool_calls = tool_calls
+            if (block.role === 'THINKING') {
+                const lastMessage = messages.at(-1)
+                const reasoningContent =
+                    this.convertPlainBlockToMessage(block).content
+                if (lastMessage && lastMessage.role === 'assistant') {
+                    lastMessage.reasoning_content = reasoningContent
                 } else {
                     messages.push({
                         role: 'assistant',
-                        tool_calls,
+                        reasoning_content: reasoningContent,
                         content: null,
                     })
                 }
+            }
+            if (block.role === 'TOOL' && !this.config.excludeHistoryToolCall) {
+                messages.push(...this.parseToolCallBlock(block))
             }
             if (
                 block.role === 'TOOLRESPONSE' &&
                 !this.config.excludeHistoryToolCall
             ) {
-                messages.push(...this.parseToolResponseBlockToMessages(block))
+                messages.push(...this.parseToolResponseBlock(block))
             }
         }
 
-        return { system, messages, toolPaths: [...toolPaths] }
+        return { messages, toolPaths: [...toolPaths] }
     }
 }

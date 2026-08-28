@@ -16,10 +16,11 @@ import {
 import { parseSSEStream } from './utils/sseStream'
 
 import type {
+    AssistantMessage,
     FinishReason,
-    ToolCall,
-    ToolCallDelta,
-    ToolMessage,
+    FunctionCallDelta,
+    FunctionCallMessage,
+    Message,
 } from './types/chat-file'
 import type { APIAdapter, StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
@@ -45,6 +46,34 @@ function processFinishReason(finishReason: FinishReason): void {
             throw new TypeError(`unkonwn finish reason: ${finishReason}`)
     }
 }
+
+/** 把流式分片合并为 FunctionCallMessage 列表（按分片 index 排序） */
+function mergeFunctionCallDeltas(
+    deltas: FunctionCallDelta[]
+): FunctionCallMessage[] {
+    const calls = new Map<number, FunctionCallMessage>()
+    for (const chunk of deltas) {
+        if (chunk.type === 'callee') {
+            if (!calls.has(chunk.index)) {
+                calls.set(chunk.index, {
+                    role: 'tool-call',
+                    callId: chunk.callId,
+                    name: chunk.callee,
+                    arguments: chunk.arguments || '',
+                })
+            }
+        } else {
+            const prev = calls.get(chunk.index)
+            if (prev) {
+                prev.arguments += chunk.delta
+            }
+        }
+    }
+    return [...calls.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, call]) => call)
+}
+
 function computeTotalCost(usages: NormalizedUsage[], config: Config) {
     let total: number = 0
     for (const usage of usages) {
@@ -72,8 +101,8 @@ export class ChatSession {
 
     // state
     private shouldStop: boolean = false
-    private toolCallDeltaBuffer: ToolCallDelta[]
-    private toolMessageBuffer: ToolMessage[]
+    private messages: Message[] = []
+    private toolCallDeltaBuffer: FunctionCallDelta[]
 
     constructor(
         private chatFilePath: string,
@@ -90,7 +119,6 @@ export class ChatSession {
 
         this.sumUsages = []
         this.toolCallDeltaBuffer = []
-        this.toolMessageBuffer = []
 
         const gateway = getModelGateway(this.config, this.config.model)
         this.api = createAPIAdapter(gateway.endpointType)
@@ -122,12 +150,12 @@ export class ChatSession {
         try {
             const gateway = getModelGateway(this.config, this.config.model)
 
-            const { system, messages, toolPaths } =
-                await this.file.buildPrompt()
+            const { messages, toolPaths } = await this.file.buildPrompt()
 
+            const lastMessage = messages.at(-1)
             if (
-                messages.at(-1)?.role !== 'user' ||
-                (messages.at(-1)?.content?.trimEnd().length || 0) < 1
+                lastMessage?.role !== 'user' ||
+                (lastMessage.content.trimEnd().length || 0) < 1
             ) {
                 printWarningMessage('No user input.')
                 this.reporter.close()
@@ -136,11 +164,7 @@ export class ChatSession {
 
             await this.toolRunner.loadTools(toolPaths)
 
-            this.api.whenParsedChat({
-                messages,
-                system,
-                toolDefinitions: this.toolRunner.getToolDefinitions(),
-            })
+            this.messages = messages
 
             let retryTimes: number = 0
             this.shouldStop = false
@@ -149,21 +173,23 @@ export class ChatSession {
                 this.reporter.setPrompt('Requesting...')
 
                 try {
-                    const resp = await this.api.whenReadyToRequest(
+                    const resp = await this.api.buildRequest(
                         this.config,
                         gateway,
-                        this.toolMessageBuffer
+                        this.messages,
+                        this.toolRunner.getToolDefinitions()
                     )
 
                     this.toolCallDeltaBuffer = []
-                    this.toolMessageBuffer = []
+                    this.messages.push({ role: 'assistant', content: '' })
 
                     for await (const message of parseSSEStream(resp)) {
-                        await this.api.whenRecvivedChunk(
+                        await this.api.handleChunk(
                             message,
                             this.onEmit.bind(this)
                         )
                     }
+                    await this.api.handleStreamEnd(this.onEmit.bind(this))
                 } catch (err) {
                     this.reporter.clear()
                     retryTimes += 1
@@ -195,12 +221,16 @@ export class ChatSession {
                 }
                 this.reporter.setPrompt('Thinking...')
                 break
-            case 'reasoning-delta':
+            case 'reasoning-delta': {
                 if (this.config.emitThinking) {
                     this.file.appendContent(msg.delta)
                 }
                 this.reporter.update(msg.delta)
+                const assistant = this.getPendingAssistant()
+                assistant.reasoning_content =
+                    (assistant.reasoning_content ?? '') + msg.delta
                 break
+            }
             case 'reasoning-end':
                 break
 
@@ -211,10 +241,13 @@ export class ChatSession {
                 })
                 this.reporter.setPrompt('Generating Answer...')
                 break
-            case 'content-delta':
+            case 'content-delta': {
                 this.file.appendContent(msg.delta)
                 this.reporter.update(msg.delta)
+                const assistant = this.getPendingAssistant()
+                assistant.content = (assistant.content ?? '') + msg.delta
                 break
+            }
             case 'content-end':
                 break
 
@@ -233,32 +266,8 @@ export class ChatSession {
                 )
                 break
             case 'function-call-end': {
-                const toolCalls = this.toolCallDeltaBuffer.reduce<ToolCall[]>(
-                    (calls, chunk) => {
-                        const indexedCall = calls.findIndex(
-                            call => call.index === chunk.index
-                        )
-                        if (chunk.type === 'callee' && indexedCall < 0) {
-                            calls.push({
-                                type: 'function',
-                                index: chunk.index,
-                                id: chunk.callId,
-                                function: {
-                                    name: chunk.callee,
-                                    arguments: chunk.arguments || '',
-                                },
-                            })
-                        } else if (
-                            chunk.type === 'arguments' &&
-                            indexedCall >= 0
-                        ) {
-                            calls[indexedCall].function.arguments +=
-                                chunk.delta
-                        }
-                        // ignore invaild chunks
-                        return calls
-                    },
-                    []
+                const toolCalls = mergeFunctionCallDeltas(
+                    this.toolCallDeltaBuffer
                 )
                 this.toolCallDeltaBuffer = []
 
@@ -266,11 +275,13 @@ export class ChatSession {
 
                 this.reporter.setPrompt('Call Function...')
 
+                this.messages.push(...toolCalls)
+
                 const toolResponses =
                     await this.toolRunner.executeAll(toolCalls)
 
                 this.file.appendToolMessagesToToolResponseBlock(toolResponses)
-                this.toolMessageBuffer.push(...toolResponses)
+                this.messages.push(...toolResponses)
 
                 break
             }
@@ -320,6 +331,18 @@ export class ChatSession {
         })
 
         await this.toolRunner.close()
+    }
+
+    private getPendingAssistant(): AssistantMessage {
+        const last = this.messages.findLast(
+            (m): m is AssistantMessage => m.role === 'assistant'
+        )
+        if (last) {
+            return last
+        }
+        const created: AssistantMessage = { role: 'assistant', content: '' }
+        this.messages.push(created)
+        return created
     }
 
     public addUsageRecord(usage: NormalizedUsage) {

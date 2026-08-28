@@ -130,5 +130,14 @@ export type ResponsesStreamEvent =
               usage: ResponsesUsage | null
           }
       }
+    | {
+          type: 'response.incomplete'
+          response: {
+              id: string
+              status: string
+              output: (ResponsesFunctionCallItem | ResponsesMessageItem)[]
+              usage: ResponsesUsage | null
+          }
+      }
     | { type: 'response.failed'; response: Record<string, unknown> }
     | { type: 'error'; error: { message: string; type?: string } }

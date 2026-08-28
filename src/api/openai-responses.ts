@@ -1,32 +1,16 @@
 import type { Config, ModelGateway } from '../config'
-import type { ChatRole } from '../fileobj'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type {
-    Message,
-    SystemMessage,
-    ToolCall,
-    ToolDef,
-    ToolMessage,
-} from '../types/chat-file'
+import type { Message, ToolDef } from '../types/chat-file'
 import type { SSEMessage } from '../utils/sseStream'
 import type {
     ResponsesInputItem,
     ResponsesRequest,
     ResponsesStreamEvent,
-    ResponsesToolDefinition,
-    ResponsesUsage,
 } from '../types/apis/openai-responses-api'
-import { mergeNormalizedUsages, type NormalizedUsage } from '../common/usage'
+import type { NormalizedUsage } from '../common/usage'
+import { assertOk } from './http'
 
-/** Responses 内部累积的工具调用分片（用于挂载 lastMessage.tool_calls） */
-type ToolCallChunk = {
-    index: number
-    id?: string
-    name?: string
-    arguments: string
-}
-
-// ======================== HTTP 层 ========================
+type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
 async function responsesRequest(
     request: ResponsesRequest,
@@ -41,36 +25,13 @@ async function responsesRequest(
         body: JSON.stringify(request),
     })
 
-    if (!resp.ok) {
-        let errorText = await resp.text()
-        try {
-            const errorJSON = JSON.parse(errorText)
-            errorText = errorJSON.error?.message || errorText
-        } catch {
-            // use original error text
-        }
-
-        const statusText =
-            resp.statusText.length > 0
-                ? `${resp.status} ${resp.statusText}`
-                : `${resp.status}`
-
-        throw new Error(
-            `API Request Failed (${statusText}), error message: ${errorText}`
-        )
-    }
-
+    assertOk(resp)
     return resp
 }
 
 // ======================== 请求转换 ========================
 
-/**
- * 把 OpenAI 形状的 Message[] 转成 Responses input items。
- * - system 消息抽到 instructions（顶层）
- * - assistant.tool_calls → function_call items
- * - tool 消息 → function_call_output items
- */
+/** 平铺消息 → Responses input items；system 抽到顶层 instructions */
 function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
     const items: ResponsesInputItem[] = []
 
@@ -80,26 +41,22 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
         if (msg.role === 'user') {
             items.push({ type: 'message', role: 'user', content: msg.content })
         } else if (msg.role === 'assistant') {
-            if (msg.tool_calls?.length) {
-                for (const tc of msg.tool_calls) {
-                    items.push({
-                        type: 'function_call',
-                        call_id: tc.id,
-                        name: tc.function.name,
-                        arguments: tc.function.arguments,
-                    })
-                }
-            } else {
-                items.push({
-                    type: 'message',
-                    role: 'assistant',
-                    content: msg.content ?? '',
-                })
-            }
-        } else if (msg.role === 'tool') {
+            items.push({
+                type: 'message',
+                role: 'assistant',
+                content: msg.content ?? '',
+            })
+        } else if (msg.role === 'tool-call') {
+            items.push({
+                type: 'function_call',
+                call_id: msg.callId,
+                name: msg.name,
+                arguments: msg.arguments,
+            })
+        } else if (msg.role === 'tool-result') {
             items.push({
                 type: 'function_call_output',
-                call_id: msg.tool_call_id,
+                call_id: msg.callId,
                 output: msg.content,
             })
         }
@@ -111,10 +68,7 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
 // ======================== Adapter ========================
 
 export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEvent> {
-    private outputFlag: ChatRole | boolean = 'UNKNOWN'
-    private toolCallChunks: ToolCallChunk[] = []
-    private messages: Message[] = []
-    private toolDefitions: ResponsesToolDefinition[] = []
+    private outputFlag: OutputFlag = 'UNKNOWN'
     private sumUsage: NormalizedUsage = {
         input: 0,
         output: 0,
@@ -125,48 +79,35 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
     /** 记录已 emit function-call-end 的 output_index，避免重复 */
     private endedToolCallIndexes = new Set<number>()
 
-    public async whenParsedChat({
-        messages,
-        system,
-        toolDefinitions,
-    }: {
-        messages: Message[]
-        system: SystemMessage | null
-        toolDefinitions: ToolDef[]
-    }) {
-        this.outputFlag = 'UNKNOWN'
-        this.messages = system ? [system, ...messages] : messages
-        this.toolDefitions = toolDefinitions.map(
-            ({ name, description, parameters }) => ({
-                type: 'function' as const,
-                name,
-                description,
-                parameters: parameters as unknown as Record<string, unknown>,
-                strict: null,
-            })
-        )
-    }
-
-    public async whenReadyToRequest(
+    public async buildRequest(
         config: Config,
         gateway: ModelGateway,
-        toolMessages?: ToolMessage[]
-    ) {
-        this.toolCallChunks = []
+        messages: Message[],
+        toolDefinitions: ToolDef[]
+    ): Promise<Response> {
+        this.outputFlag = 'UNKNOWN'
+        this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
         this.endedToolCallIndexes = new Set()
-        if (toolMessages) {
-            this.messages.push(...toolMessages)
-        }
 
         const reqBody: ResponsesRequest = {
             model: gateway.model,
-            input: toResponsesInput(this.messages),
-            tools: this.toolDefitions,
+            input: toResponsesInput(messages),
+            tools: toolDefinitions.map(
+                ({ name, description, parameters }) => ({
+                    type: 'function' as const,
+                    name,
+                    description,
+                    parameters: parameters as unknown as Record<
+                        string,
+                        unknown
+                    >,
+                })
+            ),
             stream: true,
         }
 
-        const system = this.messages.find(msg => msg.role === 'system')
-        if (system?.role === 'system' && system.content) {
+        const system = messages.find(msg => msg.role === 'system')
+        if (system?.role === 'system') {
             reqBody.instructions = system.content
         }
 
@@ -186,19 +127,10 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
             reqBody.text = { format: 'json_object' }
         }
 
-        const resp = await responsesRequest(reqBody, gateway)
-
-        this.messages.push({
-            role: 'assistant',
-            content: '',
-            reasoning_content: '',
-            reasoning: '',
-        })
-
-        return resp
+        return responsesRequest(reqBody, gateway)
     }
 
-    public async whenRecvivedChunk(
+    public async handleChunk(
         message: SSEMessage<ResponsesStreamEvent, string>,
         emit: (event: StreamEvent) => Promise<void>
     ) {
@@ -217,12 +149,6 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                         this.outputFlag = 'TOOL'
                         await emit({ type: 'function-call-start' })
                     }
-                    this.toolCallChunks.push({
-                        index: event.output_index,
-                        id: item.call_id,
-                        name: item.name,
-                        arguments: '',
-                    })
                     await emit({
                         type: 'function-call-delta',
                         delta: {
@@ -236,10 +162,6 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
 
                     // 此网关一次性给出完整 arguments
                     if (item.arguments) {
-                        this.toolCallChunks.push({
-                            index: event.output_index,
-                            arguments: item.arguments,
-                        })
                         await emit({
                             type: 'function-call-delta',
                             delta: {
@@ -258,7 +180,6 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     this.outputFlag = 'ASSISTANT'
                     await emit({ type: 'content-start' })
                 }
-                this.messages.at(-1)!.content += event.delta
                 await emit({ type: 'content-delta', delta: event.delta })
                 return
             }
@@ -269,10 +190,6 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     this.outputFlag = 'TOOL'
                     await emit({ type: 'function-call-start' })
                 }
-                this.toolCallChunks.push({
-                    index: event.output_index,
-                    arguments: event.delta,
-                })
                 await emit({
                     type: 'function-call-delta',
                     delta: {
@@ -286,16 +203,11 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
 
             case 'response.reasoning_summary_text.delta':
             case 'response.reasoning_text.delta': {
-                // 兼容两种事件名：
                 // - Opencode 网关: response.reasoning_summary_text.delta
                 // - DeepSeek 官方: response.reasoning_text.delta
                 if (this.outputFlag !== 'THINKING') {
                     this.outputFlag = 'THINKING'
                     await emit({ type: 'reasoning-start' })
-                }
-                const lastMessage = this.messages.at(-1)
-                if (lastMessage?.role === 'assistant') {
-                    lastMessage.reasoning_content += event.delta
                 }
                 await emit({ type: 'reasoning-delta', delta: event.delta })
                 return
@@ -309,12 +221,6 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                     }
                     this.endedToolCallIndexes.add(event.output_index)
 
-                    const toolCalls = this.mergeToolCalls()
-
-                    const lastMessage = this.messages.at(-1)
-                    if (lastMessage?.role === 'assistant') {
-                        lastMessage.tool_calls = toolCalls
-                    }
                     this.outputFlag = 'UNKNOWN'
                     await emit({
                         type: 'function-call-end',
@@ -323,24 +229,30 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
                 return
             }
 
-            case 'response.completed': {
+            case 'response.completed':
+            case 'response.incomplete': {
+                const usage = event.response.usage
+                if (usage) {
+                    this.sumUsage = {
+                        input: usage.input_tokens,
+                        output: usage.output_tokens,
+                        cached: usage.input_tokens_details?.cached_tokens ?? 0,
+                        thinking:
+                            usage.output_tokens_details?.reasoning_tokens ?? 0,
+                    }
+                }
                 const hasFunctionCall = event.response.output.some(
                     item => item.type === 'function_call'
                 )
-                if (hasFunctionCall) {
-                    // function-call-end 已触发下一轮，此处不再发 response-end
-                    if (event.response.usage) {
-                        this.addUsageRecord(event.response.usage)
-                    }
-                    return
-                }
-                if (event.response.usage) {
-                    this.addUsageRecord(event.response.usage)
-                }
                 this.outputFlag = 'UNKNOWN'
                 await emit({
                     type: 'response-end',
-                    finishReason: 'stop',
+                    finishReason:
+                        event.type === 'response.incomplete'
+                            ? 'length'
+                            : hasFunctionCall
+                              ? 'tool_calls'
+                              : 'stop',
                     usage: this.sumUsage,
                 })
                 return
@@ -358,40 +270,5 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
         }
     }
 
-    private mergeToolCalls(): ToolCall[] {
-        const toolCallList: ToolCall[] = []
-        for (const chunk of this.toolCallChunks) {
-            if (chunk.name) {
-                toolCallList.push({
-                    index: chunk.index,
-                    id: chunk.id!,
-                    type: 'function',
-                    function: {
-                        name: chunk.name,
-                        arguments: chunk.arguments,
-                    },
-                })
-            } else {
-                const index = toolCallList.findIndex(
-                    block => block.index === chunk.index
-                )
-                if (index === -1) {
-                    throw new Error(
-                        `unexcepted tool call index: ${chunk.index}`
-                    )
-                }
-                toolCallList[index].function.arguments += chunk.arguments
-            }
-        }
-        return toolCallList
-    }
-
-    private addUsageRecord(usage: ResponsesUsage) {
-        this.sumUsage = mergeNormalizedUsages(this.sumUsage, {
-            input: usage.input_tokens,
-            output: usage.output_tokens,
-            cached: usage.input_tokens_details?.cached_tokens ?? 0,
-            thinking: usage.output_tokens_details?.reasoning_tokens ?? 0,
-        })[0]
-    }
+    public async handleStreamEnd(): Promise<void> {}
 }
