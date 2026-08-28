@@ -25,7 +25,15 @@ function sendToChild(
     message: IPCMessageFromMain
 ): Promise<void> {
     return new Promise<void>((resovle, reject) => {
-        child.send(message, error => (error ? reject(error) : resovle()))
+        try {
+            if (child.connected) {
+                child.send(message, error =>
+                    error ? reject(error) : resovle()
+                )
+            }
+        } catch (error) {
+            reject(error)
+        }
     })
 }
 
@@ -274,7 +282,7 @@ export class ToolRunner {
         const { id, request } = msg
 
         if (request.stream) {
-            sendToChild(child, {
+            await sendToChild(child, {
                 type: 'chatCompletionResult',
                 id,
                 error: 'chatCompletion not support stream, please use `fetch`',
@@ -283,7 +291,7 @@ export class ToolRunner {
         }
 
         if (request.tools) {
-            sendToChild(child, {
+            await sendToChild(child, {
                 type: 'chatCompletionResult',
                 id,
                 error: 'chatCompletion not support tools, please use `fetch`',
@@ -421,9 +429,13 @@ export class ToolRunner {
             }
             await api.handleStreamEnd(emit)
 
-            sendToChild(child, { type: 'chatCompletionResult', id, result })
+            await sendToChild(child, {
+                type: 'chatCompletionResult',
+                id,
+                result,
+            })
         } catch (err) {
-            sendToChild(child, {
+            await sendToChild(child, {
                 type: 'chatCompletionResult',
                 id,
                 error: (err as { message: string }).message,

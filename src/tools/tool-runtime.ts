@@ -56,7 +56,13 @@ if (!process.send) {
 
 function sendToIPC(message: IPCMessageFromChild): Promise<void> {
     return new Promise<void>((resovle, reject) => {
-        process.send!(message, error => (error ? reject(error) : resovle()))
+        try {
+            process.send!(message, error =>
+                error ? reject(error) : resovle()
+            )
+        } catch (error) {
+            reject(error)
+        }
     })
 }
 
@@ -77,7 +83,7 @@ process.on('message', async (msg: IPCMessageFromMain) => {
             if (!tool) throw new Error(`Tool "${toolName}" not found.`)
             const result = tool.func(args)
             const output = result instanceof Promise ? await result : result
-            sendToIPC({
+            await sendToIPC({
                 type: 'toolResult',
                 id,
                 result: output,
@@ -89,7 +95,7 @@ process.on('message', async (msg: IPCMessageFromMain) => {
             } else {
                 error = String(err)
             }
-            sendToIPC({
+            await sendToIPC({
                 type: 'toolResult',
                 id,
                 error,
@@ -111,8 +117,8 @@ process.on('message', async (msg: IPCMessageFromMain) => {
     }
 })
 
-process.on('uncaughtException', error => {
-    sendToIPC({
+process.on('uncaughtException', async error => {
+    await sendToIPC({
         type: 'error',
         name: error.name,
         message: error.message,
