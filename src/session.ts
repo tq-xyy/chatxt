@@ -13,7 +13,7 @@ import {
     printWarningMessage,
     ProgressReporter,
 } from './tui'
-import { parseSSEStream } from './utils/sseStream'
+import { parseSSEStream } from './utils/sse-stream'
 
 import type {
     AssistantMessage,

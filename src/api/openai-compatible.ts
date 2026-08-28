@@ -11,7 +11,7 @@ import type {
     OpenAICompatibleToolCallChunk,
     OpenAICompatibleToolDefinition,
 } from '../types/apis/openai-compatible-api'
-import type { SSEMessage } from '../utils/sseStream'
+import type { SSEMessage } from '../utils/sse-stream'
 import type { NormalizedUsage } from '../common/usage'
 import { assertOk } from './http'
 

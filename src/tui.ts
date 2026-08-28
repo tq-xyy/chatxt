@@ -3,7 +3,7 @@ import chalk from 'chalk'
 import { getModelGateway, type Config } from './config'
 import type { NormalizedUsage } from './common/usage'
 import { computeTokenCostCNY } from './common/pricing'
-import { estimateTokens } from './utils/estimateTokens'
+import { estimateTokens } from './utils/estimate-tokens'
 
 export function printWarningMessage(warn: string): void {
     console.warn(chalk.yellow.bold('! Warning ') + chalk.yellow(warn))

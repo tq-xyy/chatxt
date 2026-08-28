@@ -1,7 +1,7 @@
 import type { Config, ModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type { Message, ToolDef } from '../types/chat-file'
-import type { SSEMessage } from '../utils/sseStream'
+import type { SSEMessage } from '../utils/sse-stream'
 import type {
     ResponsesInputItem,
     ResponsesRequest,

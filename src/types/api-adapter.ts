@@ -5,7 +5,7 @@ import type {
     FinishReason,
     FunctionCallDelta,
 } from './chat-file'
-import type { SSEMessage } from '../utils/sseStream'
+import type { SSEMessage } from '../utils/sse-stream'
 
 import type { NormalizedUsage } from '../common/usage'
 
