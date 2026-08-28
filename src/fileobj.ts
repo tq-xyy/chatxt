@@ -406,9 +406,6 @@ export class ChatFile {
                     messages.push(msg)
                 }
             }
-            if (block.role === 'ASSISTANT') {
-                messages.push(this.convertPlainBlockToMessage(block))
-            }
             if (block.role === 'THINKING') {
                 const lastMessage = messages.at(-1)
                 const reasoningContent =
@@ -420,6 +417,23 @@ export class ChatFile {
                         role: 'assistant',
                         reasoning_content: reasoningContent,
                         content: null,
+                    })
+                }
+            }
+            // put assistant output to the thinking block before
+            if (block.role === 'ASSISTANT') {
+                const lastMessage = messages.at(-1)
+                const content = this.convertPlainBlockToMessage(block).content
+                if (
+                    lastMessage &&
+                    lastMessage.role === 'assistant' &&
+                    lastMessage.content === null
+                ) {
+                    lastMessage.content = content
+                } else {
+                    messages.push({
+                        role: 'assistant',
+                        content,
                     })
                 }
             }
