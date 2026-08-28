@@ -13,24 +13,6 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-async function anthropicRequest(
-    request: AnthropicRequest,
-    api: { endpoint: string; apikey: string }
-): Promise<Response> {
-    const resp = await fetch(`${api.endpoint}/messages`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': api.apikey,
-            'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify(request),
-    })
-
-    assertOk(resp)
-    return resp
-}
-
 // ======================== 请求转换 ========================
 
 /** 平铺消息 → Anthropic messages；tool_use 前无 assistant 时兜底创建 */
@@ -134,7 +116,18 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
             }
         }
 
-        return anthropicRequest(reqBody, gateway)
+        const resp = await fetch(`${gateway.endpoint}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': gateway.apikey,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify(reqBody),
+        })
+
+        await assertOk(resp)
+        return resp
     }
 
     public async handleChunk(

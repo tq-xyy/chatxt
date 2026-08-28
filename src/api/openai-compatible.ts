@@ -17,26 +17,6 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-async function chatCompletion(
-    request: OpenAICompatibleRequest,
-    api: {
-        endpoint: string
-        apikey: string
-    }
-): Promise<Response> {
-    const resp = await fetch(`${api.endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${api.apikey}`,
-        },
-        body: JSON.stringify(request),
-    })
-
-    assertOk(resp)
-    return resp
-}
-
 function normalizeUsage(usage: OpenAICompatibleUsage): NormalizedUsage {
     return {
         input: usage.prompt_tokens,
@@ -166,7 +146,17 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
             reqBody.response_format = { type: 'json_object' }
         }
 
-        return chatCompletion(reqBody, gateway)
+        const resp = await fetch(`${gateway.endpoint}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${gateway.apikey}`,
+            },
+            body: JSON.stringify(reqBody),
+        })
+
+        await assertOk(resp)
+        return resp
     }
 
     public async handleChunk(

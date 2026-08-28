@@ -12,23 +12,6 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-async function responsesRequest(
-    request: ResponsesRequest,
-    api: { endpoint: string; apikey: string }
-): Promise<Response> {
-    const resp = await fetch(`${api.endpoint}/responses`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${api.apikey}`,
-        },
-        body: JSON.stringify(request),
-    })
-
-    assertOk(resp)
-    return resp
-}
-
 // ======================== 请求转换 ========================
 
 /** 平铺消息 → Responses input items；system 抽到顶层 instructions */
@@ -127,7 +110,17 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
             reqBody.text = { format: 'json_object' }
         }
 
-        return responsesRequest(reqBody, gateway)
+        const resp = await fetch(`${gateway.endpoint}/responses`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${gateway.apikey}`,
+            },
+            body: JSON.stringify(reqBody),
+        })
+
+        await assertOk(resp)
+        return resp
     }
 
     public async handleChunk(
