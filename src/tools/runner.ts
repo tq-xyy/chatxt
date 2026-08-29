@@ -223,6 +223,7 @@ export class ToolRunner {
             }
         } catch (err) {
             const message = `Error when executing tool ${toolName}: ${err instanceof Error ? err.message : err}`
+            printWarningMessage(message)
             return {
                 role: 'tool-result' as const,
                 callId,
