@@ -178,6 +178,7 @@ Global API available in tool files (no import needed):
 - `chatxt.runtime.exposeTool([{ name, description, parameters, func }])` — register tools and report definitions
 - `chatxt.runtime.chatCompletion(request)` — call an LLM from inside a tool (proxied by the main process; usage is billed to the session)
 - `chatxt.helpers.convertArgsToSchema(argsDefs)` — shorthand for building parameter JSON schemas
+- `chatxt.context.{toolPath, chatFilePath, chatFileDirname, chatxtVersion}` — tool process context (fixed at injection time, read-only)
 
 See [docs/tool_guide_zh.md](docs/tool_guide_zh.md) for the full guide.
 

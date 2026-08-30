@@ -1,6 +1,11 @@
 import { fork, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
+import { printWarningMessage, printExceptionMessage } from '../tui'
+import { createAPIAdapter } from '../api'
+import { getModelGateway } from '../config'
+import { parseSSEStream } from '../utils/sse-stream'
+
 import type {
     ToolDef,
     FunctionCallMessage,
@@ -12,13 +17,11 @@ import type {
     IPCMessageFromMain,
     IPCMessageFromChild,
 } from './ipc-types'
-import type { ChatSession } from '../session'
-import { printWarningMessage, printExceptionMessage } from '../tui'
-import { createAPIAdapter } from '../api'
-import { getModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-api'
-import { parseSSEStream } from '../utils/sse-stream'
+import type { ChatxtToolAPI } from '../types/tool-runtime-api'
+import type { ChatSession } from '../session'
+import { chatxtVersion } from '../utils/version'
 
 function sendToChild(
     child: ChildProcess,
@@ -68,6 +71,17 @@ export class ToolRunner {
         const child = fork(absPath, [], {
             execArgv: [...process.execArgv, '--import', this.runtimePath],
             stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+            env: {
+                ...process.env,
+                CHATXT_TOOL_CONTEXT: JSON.stringify({
+                    toolPath: absPath,
+                    chatFilePath: this.session.file.chatFilePath,
+                    chatFileDirname: path.dirname(
+                        this.session.file.chatFilePath
+                    ),
+                    chatxtVersion,
+                } as ChatxtToolAPI['context']),
+            },
         })
 
         if (this.session.config.emitToConsole) {

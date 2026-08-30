@@ -28,7 +28,7 @@ src/
 
 **用户块内指令**（仅 `USER` 块解析，其余角色块原样透传；路径相对 `.chat.txt` 所在目录）：`@file(路径)` 把外部文件内容追加到消息尾部（同一文件一次会话只引用一次）；`@include(路径)` 把外部文件作为预设递归展开——文件内容会被重新解析为指令（支持嵌套 `@file`/`@tool`/`@include`，内部路径相对该文件所在目录解析，循环引用跳过并警告，含角色行的文件被拒绝）；`@tool(路径)` 声明工具文件，会话启动时加载。
 
-**工具系统**：任意 Node.js 脚本（`.ts`/`.js`），通过全局对象 `chatxt` 的 `runtime.exposeTool()` 注册工具。工具文件被 `fork` 为常驻子进程，通过 IPC 与主进程通信；子进程内还可调用 `chatxt.runtime.chatCompletion()`（由主进程代理，用量计入会话）与 `chatxt.helpers.convertArgsToSchema()`（参数定义简写）。详见 `docs/tool_guide_zh.md`。
+**工具系统**：任意 Node.js 脚本（`.ts`/`.js`），通过全局对象 `chatxt` 的 `runtime.exposeTool()` 注册工具。工具文件被 `fork` 为常驻子进程，通过 IPC 与主进程通信；子进程内还可调用 `chatxt.runtime.chatCompletion()`（由主进程代理，用量计入会话）与 `chatxt.helpers.convertArgsToSchema()`（参数定义简写），并通过 `chatxt.context` 读取注入的上下文（工具路径、聊天文件路径及其目录、chatxt 版本）。详见 `docs/tool_guide_zh.md`。
 
 ## 模块说明
 
@@ -65,8 +65,8 @@ src/
 
 ### `tools/`（工具系统）
 
-- `runner.ts`（主进程侧）：`loadTool()` fork 工具文件并通过 `--import tool-runtime.ts` 注入运行时，等待 register 消息（10s 超时）；`execute()` 为每次调用分配自增 requestId，Promise 挂起等待 result；子进程崩溃以错误 JSON 作为结果返回，不中断会话
-- `tool-runtime.ts`（子进程侧）：注入 `chatxt` 运行时对象（`runtime.exposeTool` / `runtime.chatCompletion` / `helpers.convertArgsToSchema`），监听 execute 消息并回传结果
+- `runner.ts`（主进程侧）：`loadTool()` fork 工具文件并通过 `--import tool-runtime.ts` 注入运行时，同时以 `CHATXT_TOOL_CONTEXT` 环境变量传入上下文（在 `process.env` 基础上追加），等待 register 消息（10s 超时）；`execute()` 为每次调用分配自增 requestId，Promise 挂起等待 result；子进程崩溃以错误 JSON 作为结果返回，不中断会话
+- `tool-runtime.ts`（子进程侧）：注入 `chatxt` 运行时对象（`context` / `runtime.exposeTool` / `runtime.chatCompletion` / `helpers.convertArgsToSchema`），监听 execute 消息并回传结果
 - `ipc-types.ts`：主→子 `execute | chatCompletionResult | exit`，子→主 `register | result | chatCompletion | warning | error`
 
 ### `common/`、`utils/` 与 `tui.ts`

@@ -5,6 +5,7 @@ import type {
 } from '../types/apis/openai-compatible-api'
 import type { JSONSchema7 as JSONSchema } from 'json-schema'
 import type { ToolDef } from '../types/chat-file'
+import type { ChatxtToolAPI } from '../types/tool-runtime-api'
 
 type ToolFunction = (arg: unknown) => unknown
 
@@ -12,46 +13,14 @@ interface RegisteredTool extends ToolDef {
     func: ToolFunction
 }
 
-type WithFalsy<T> = T | null | undefined | false
-
-export type ChatxtToolAPI = {
-    runtime: {
-        exposeTool(
-            tools: WithFalsy<{
-                name: string
-                description: string
-                parameters: JSONSchema
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                func: (arg: any) => any
-            }>[]
-        ): Promise<void>
-        chatCompletion(
-            request: Omit<OpenAICompatibleRequest, 'model'> & {
-                model?: string
-            }
-        ): Promise<OpenAICompatibleResponse>
-    }
-    helpers: {
-        convertArgsToSchema(
-            argsDefs: [
-                string,
-                string,
-                (
-                    | StringConstructor
-                    | NumberConstructor
-                    | BooleanConstructor
-                    | JSONSchema
-                ),
-                { optional?: boolean }?,
-            ][]
-        ): JSONSchema
-    }
-}
-
 if (!process.send) {
     throw new Error(
         'FATAL: IPC channel not available. This script must be launched with child_process.fork.'
     )
+}
+
+if (!process.env.CHATXT_TOOL_CONTEXT) {
+    throw new Error('FATAL: The script must be launched by `chatxt`')
 }
 
 function sendToIPC(message: IPCMessageFromChild): Promise<void> {
@@ -127,6 +96,9 @@ process.on('uncaughtException', async error => {
 })
 
 const toolAPI: ChatxtToolAPI = {
+    context: JSON.parse(
+        process.env.CHATXT_TOOL_CONTEXT
+    ) as ChatxtToolAPI['context'],
     runtime: {
         async exposeTool(tools) {
             const toolDefs: ToolDef[] = []

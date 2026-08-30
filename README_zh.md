@@ -178,6 +178,7 @@ chatxt.runtime.exposeTool([
 - `chatxt.runtime.exposeTool([{ name, description, parameters, func }])` —— 注册工具并上报定义
 - `chatxt.runtime.chatCompletion(request)` —— 在工具内调用 LLM（由主进程代理，用量计入会话）
 - `chatxt.helpers.convertArgsToSchema(argsDefs)` —— 参数 JSON Schema 简写
+- `chatxt.context.{toolPath, chatFilePath, chatFileDirname, chatxtVersion}` —— 工具进程上下文信息（注入时确定，只读）
 
 完整指南见 [docs/tool_guide_zh.md](docs/tool_guide_zh.md)。
 

@@ -1,4 +1,4 @@
-import type { ChatxtToolAPI } from './tool-runtime'
+import type { ChatxtToolAPI } from '../types/tool-runtime-api'
 export {}
 
 declare global {

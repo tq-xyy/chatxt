@@ -6,7 +6,7 @@ Chatxt 的工具系统让你能用几行代码将任意 Node.js 能力变成 AI 
 
 ## `chatxt` 运行时对象
 
-Chatxt 在运行你的工具文件之前，会注入一个全局对象 `chatxt`（无需 `require`/`import`），内含三个 API：
+Chatxt 在运行你的工具文件之前，会注入一个全局对象 `chatxt`（无需 `require`/`import`），内含四部分 API：
 
 ### 1. `chatxt.runtime.exposeTool`
 
@@ -74,6 +74,39 @@ function convertArgsToSchema(
 
 **功能**  
 将简明的参数定义数组转换为标准 JSON Schema 对象。适合参数结构简单、类型为基础类型的场景。如果需要更复杂的描述（例如嵌套对象、数组、枚举等），可以直接手写 JSON Schema。
+
+### 4. `chatxt.context`
+
+工具进程的上下文信息，由主进程在 fork 时通过环境变量注入，属性只读：
+
+```ts
+const context: {
+    toolPath: string // 工具文件的绝对路径
+    chatFilePath: string // 当前 .chat.txt 文件的绝对路径
+    chatFileDirname: string // 聊天文件所在目录的绝对路径
+    chatxtVersion: string // chatxt 版本号
+}
+```
+
+**功能**  
+让工具代码感知自身运行环境。典型用途：
+
+- 以 `chatxt.context.chatFileDirname` 为锚点解析相对路径（聊天文件所在目录即用户的工作目录）
+- 用 `chatxt.context.toolPath` 定位工具文件旁的资源文件
+- 用 `chatxt.context.chatxtVersion` 做版本兼容判断
+
+```javascript
+// 以聊天文件所在目录为基准读写文件
+import { readFile } from 'fs/promises'
+import * as path from 'path'
+
+const config = JSON.parse(
+    await readFile(
+        path.resolve(chatxt.context.chatFileDirname, 'config.json'),
+        'utf-8'
+    )
+)
+```
 
 ## 示例一：数学计算器（使用 `convertArgsToSchema` 简写）
 
@@ -282,5 +315,6 @@ AI 会依次调用 `current_time({ timezone: 'Asia/Shanghai' })` 和 `memory_usa
 - **错误处理**：函数内可抛出异常，框架会捕获并返回 `{ "error": "错误消息" }`。
 - **调试信息**：可以在工具函数内任意使用 `console.log`，输出会直接显示在终端。
 - **文件位置**：建议将工具文件放在项目目录的 `tools/` 文件夹下，通过相对路径引用（相对于 `.chat.md` 所在目录）。
+- **只能在 chatxt 中运行**：`chatxt` 全局对象（含 `context`）由主进程通过环境变量与 `--import` 钩子注入，直接用 `node xxx.tool.js` 运行工具文件会因缺少 IPC 通道与上下文而抛出 FATAL 错误。
 
 现在你已经了解了 Chatxt 工具系统的基本用法和高级技巧，可以开始编写自己的工具，享受可编程对话的乐趣了。

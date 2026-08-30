@@ -1,15 +1,14 @@
 import { Command } from 'commander'
 import { ChatSession } from './session'
 import { initConfig, loadConfig } from './config'
-
-import { version } from '../package.json'
+import { chatxtVersion } from './utils/version'
 
 const program = new Command()
 
 program
     .name('chatxt')
     .description('Chatxt CLI – AI conversations as files')
-    .version(version)
+    .version(chatxtVersion)
     .argument('<file>', '.chat.txt file to process, create if not available.')
     .option('-m, --model <model>', 'model to be used to generate')
     .option('-k, --api-key <model>', 'api key from your model provider')
