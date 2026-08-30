@@ -341,14 +341,14 @@ export class ChatFile {
         return calls
     }
 
-    public appendToolCallChunkToToolBlock(delta: FunctionCallDelta) {
+    public async appendToolCallChunkToToolBlock(delta: FunctionCallDelta) {
         if (delta.type === 'callee') {
-            this.appendContent(
+            await this.appendContent(
                 `\n${delta.callee} (${delta.callId}): ${delta.arguments || ''}`
             )
         }
         if (delta.type === 'arguments') {
-            this.appendContent(delta.delta)
+            await this.appendContent(delta.delta)
         }
     }
 
@@ -369,14 +369,14 @@ export class ChatFile {
         return toolMessages
     }
 
-    public appendToolMessagesToToolResponseBlock(
+    public async appendToolMessagesToToolResponseBlock(
         msgs: FunctionCallResultMessage[]
     ) {
-        this.appendRoleLine('TOOLRESPONSE', {
+        await this.appendRoleLine('TOOLRESPONSE', {
             withPrefixNewLine: true,
             withSuffixNewLine: true,
         })
-        this.appendContent(
+        await this.appendContent(
             msgs.map(msg => `${msg.callId}: ${msg.content}`).join('\n')
         )
     }

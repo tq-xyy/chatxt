@@ -223,7 +223,7 @@ export class ChatSession {
                 break
             case 'reasoning-delta': {
                 if (this.config.emitThinking) {
-                    this.file.appendContent(msg.delta)
+                    await this.file.appendContent(msg.delta)
                 }
                 this.reporter.update(msg.delta)
                 const assistant = this.getPendingAssistant()
@@ -242,7 +242,7 @@ export class ChatSession {
                 this.reporter.setPrompt('Generating Answer...')
                 break
             case 'content-delta': {
-                this.file.appendContent(msg.delta)
+                await this.file.appendContent(msg.delta)
                 this.reporter.update(msg.delta)
                 const assistant = this.getPendingAssistant()
                 assistant.content = (assistant.content ?? '') + msg.delta
@@ -259,7 +259,7 @@ export class ChatSession {
                 this.reporter.setPrompt('Generating Function Call...')
                 break
             case 'function-call-delta':
-                this.file.appendToolCallChunkToToolBlock(msg.delta)
+                await this.file.appendToolCallChunkToToolBlock(msg.delta)
                 this.toolCallDeltaBuffer.push(msg.delta)
                 this.reporter.update(
                     msg.delta.type === 'arguments' ? msg.delta.delta : ''
@@ -280,7 +280,9 @@ export class ChatSession {
                 const toolResponses =
                     await this.toolRunner.executeAll(toolCalls)
 
-                this.file.appendToolMessagesToToolResponseBlock(toolResponses)
+                await this.file.appendToolMessagesToToolResponseBlock(
+                    toolResponses
+                )
                 this.messages.push(...toolResponses)
 
                 break
