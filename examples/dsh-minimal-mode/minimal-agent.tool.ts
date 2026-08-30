@@ -1,25 +1,20 @@
-// Minimal Agent — 复刻 DeepSeek Harness 的"极简模式"（minimal preset）
-//
-// 两个工具：
-//   1. run_shell        —— 持久 shell（POSIX 上 bash，win32 上 pwsh），
-//                          状态跨命令调用与对话保持，超时默认 5 分钟
-//   2. str_replace_editor —— 精确字符串编辑（view / str_replace / create / insert）
-//
-// 用法：在 .chat.txt 的 USER 段写：
-//   @tool(./minimal-agent.tool.ts)
-//
-// run_shell 的设计对照 DeepSeek Harness 的 tool-pwsh-persistent 与
-// tool-bash-persistent（详见同目录 README.md）；chatxt 用 spawn 管道而非
-// PTY，故省略其提示符安装与回显剥离逻辑。
-
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { existsSync } from 'fs'
 import { randomUUID } from 'node:crypto'
 import { spawn, type ChildProcess } from 'child_process'
 
-// ---------------------------------------------------------------------------
-// 1. 持久 shell
-// ---------------------------------------------------------------------------
+// run_shell 实现机制（对照 DeepSeek Harness `tool-bash-persistent`）
+// run_shell 的设计对照 DeepSeek Harness 的 tool-bash-persistent；chatxt 用 spawn 管道而非 PTY，故省略其提示符安装与回显剥离逻辑。
+// 每条命令被包装为**单物理行 wrapper** 写入持久 shell：
+// - 随机 nonce（UUID）的 START/END marker，END marker 后紧跟**同行的数字退出码**（`'END_nonce:' + code`），解析端用 `/^(\d+)\r?\n/` 提取——命令输出或回显中的 marker 文本永远无法伪造完成
+// - 命令体先经 `bash -n -c` 静态语法校验再 `eval "$cmd"`（`$?` 即退出码）。busybox 的 `bash` 入口即 ash，从管道逐行读命令时 `eval` 内的语法错误会杀死外层 shell，预校验把这类错误归一为 exit 2 + 报错且不损伤持久会话（变量、函数定义保留）；GNU bash 下行为一致
+// - ANSI-C quoting（`$'...'`）把命令体压成单行；busybox ash 的 `eval` 不接受 `--` 分隔符（会当作命令），故省略
+// - shell 经 stdin 管道逐行喂命令，命令体与输出均为 UTF-8 字节原样传递（busybox-w32 Unicode 构建内部使用 UTF-8），无 pwsh 管道按 ANSI 代码页解码导致的中文损坏问题，因此不再需要 base64(UTF-16LE) 传输
+// - 超时 / shell 意外退出（如命令体顶层 `exit`）→ kill 并重置，下次调用全新会话（对照 dsh 的 reset 契约）
+// - 同一 agent 的命令**串行排队**（对照 dsh 的 serialized）；输出超过 16,000 字符自动截断并附 `<response clipped>` 引导
+// > 与 dsh 的差异：dsh 的持久 shell 运行在 PTY 里（交互式 bash），因此需要安装受控提示符、按 25ms 轮询 scrollback；chatxt 使用 spawn 管道（无交互回显），同样语义下更简单，采用事件驱动读取。
+// > BusyBox ash 与 GNU bash 的差异：本目录的 busybox-w32 build 编译时开启了 bash 兼容（`CONFIG_ASH_BASH_COMPAT`），因此 `[[ ]]`（含复合条件）、进程替换 `<( )` 均可用；但仍**不支持数组**（`arr=(...)` 报语法错误）等部分 bash 扩展。路径语义是原生的——没有 MSYS 式的 `/d/...` 转换，盘内路径用 `D:/dir` 或 `D:\\dir`；核心 applet（ls / cat / grep / sed / awk / find 等）齐全，且在 busybox shell 内可直接按 applet 名调用（如 `bash`、`sleep`），覆盖日常编码任务。若命令因语法不兼容失败，AI 会收到非零退出码并自行调整。
 
 const isWin = process.platform === 'win32'
 
@@ -30,11 +25,38 @@ const MAX_OUTPUT_CHARS = 16_000
 const MAX_BUFFER_BYTES = 20 * 1024 * 1024
 
 const TRUNCATED_MESSAGE =
-    '<response clipped><NOTE>输出已截断。请用更窄的命令（如 ls / grep / Select-String）缩小输出范围。</NOTE>'
+    '<response clipped><NOTE>输出已截断。请用更窄的命令（如 ls / grep / head）缩小输出范围。</NOTE>'
 const LOST_PREFIX_MESSAGE =
     '<response clipped><NOTE>命令输出过长，开头部分已被丢弃，以下是最早保留的输出。</NOTE>\n'
 const SHELL_RESET_MESSAGE =
     '持久 shell 已重置；下一次调用将从工作目录以全新环境开始。'
+
+const BUSYBOX_POSSIBLE_PATH = [
+    'windows/busybox.exe',
+    'windows/busybox64.exe',
+    'windows/busybox64u.exe',
+    'windows/busybox64a.exe',
+]
+const BUSYBOX_SUPPORT_APPLETS = // busybox --list
+    (
+        '[,[[,ar,arch,ascii,ash,awk,base32,base64,basename,bash,bc,' +
+        'bunzip2,busybox,bzcat,bzip2,cal,cat,cdrop,chattr,chmod,cksum,' +
+        'clear,cmp,comm,cp,cpio,crc32,crond,crontab,cut,date,dc,dd,df,' +
+        'diff,dirname,dos2unix,dpkg,dpkg-deb,drop,du,echo,ed,egrep,env,' +
+        'expand,expr,factor,false,fgrep,find,flock,fold,free,fsync,' +
+        'ftpget,ftpput,getopt,grep,groups,gunzip,gzip,hd,head,hexdump,' +
+        'httpd,iconv,id,inotifyd,install,ipcalc,jn,join,kill,killall,lash,' +
+        'less,link,ln,logname,ls,lsattr,lzcat,lzma,lzop,lzopcat,make,man,' +
+        'md5sum,mkdir,mktemp,mv,nc,nl,nproc,od,paste,patch,pdpmake,pdrop,' +
+        'pgrep,pidof,pipe_progress,pkill,printenv,printf,ps,pwd,readlink,' +
+        'realpath,reset,rev,rm,rmdir,rpm,rpm2cpio,sed,seq,sh,sha1sum,sha256sum,' +
+        'sha384sum,sha3sum,sha512sum,shred,shuf,sleep,sort,split,ssl_client,' +
+        'stat,strings,stty,su,sum,sync,tac,tail,tar,tee,test,time,timeout,' +
+        'touch,tr,true,truncate,ts,tsort,ttysize,uname,uncompress,unexpand,' +
+        'uniq,unix2dos,unlink,unlzma,unlzop,unxz,unzip,uptime,usleep,uudecode,' +
+        'uuencode,uuidgen,vi,watch,wc,wget,which,whoami,whois,xargs,xxd,xz,' +
+        'xzcat,yes,zcat'
+    ).split(',')
 
 let shell: ChildProcess | null = null
 
@@ -58,24 +80,35 @@ process.on('SIGTERM', () => {
     process.exit(0)
 })
 
+// Windows 上使用的 BusyBox for Windows（busybox-w32 项目，Unicode/UTF-8 构建），
+// 其 "bash" applet 即 BusyBox ash 的 bash 兼容模式，统一了两侧的 shell 语法。
+// 存放于本目录 windows/ 下（.gitignore 中，需按 README 自行放置）。
+
 function startShell(): ChildProcess {
     if (isWin) {
-        // 与 dsh pwsh-local 一致：无交互、无 profile；-Command - 从 stdin 逐行执行。
-        // 首发送钉死 UTF-8 编码（同 dsh 的 ENCODING_PREAMBLE）：pwsh 7 管道输出默认就是
-        // UTF-8，此行为 Windows PowerShell 5.1 兜底；命令输入经 base64 已无编码歧义。
-        const proc = spawn(
-            'pwsh',
-            ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'],
-            { stdio: ['pipe', 'pipe', 'pipe'] }
-        )
-        proc.stdin?.write(
-            '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [System.Text.UTF8Encoding]::new();\n'
-        )
-        return proc
+        let busyboxBinary: string | undefined
+        for (const possible of BUSYBOX_POSSIBLE_PATH) {
+            if (existsSync(path.join(import.meta.dirname, possible))) {
+                busyboxBinary = path.join(import.meta.dirname, possible)
+            }
+        }
+        if (!busyboxBinary) {
+            throw new Error(
+                `未找到 BusyBox\n请下载 busybox-w32 到 ${path.join(import.meta.dirname, BUSYBOX_POSSIBLE_PATH[0])}，详见 README。`
+            )
+        }
+        // 无交互、无 profile；从 stdin 逐行读取命令。
+        // busybox ash 不支持 bash 的 --noprofile/--norc，也不支持 eval --，
+        // 但管道模式下本就无 rc 文件加载，UTF-8 输入输出无需额外编码设置。
+        return spawn(busyboxBinary, ['bash'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            cwd: chatxt.context.chatFileDirname,
+        })
     }
     // bash 无编码问题；noprofile/norc 与 dsh 的 bash 启动参数一致
     return spawn('bash', ['--noprofile', '--norc'], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: chatxt.context.chatFileDirname,
     })
 }
 
@@ -102,7 +135,7 @@ function resetShell(): void {
 }
 
 // ---------------------------------------------------------------------------
-// marker 与 wrapper（对照 dsh 的 markers() / quoteFor* / wrapCommand）
+// marker 与 wrapper（对照 dsh 的 markers() / quoteForBash / wrapCommand）
 // ---------------------------------------------------------------------------
 
 interface CommandMarkers {
@@ -113,12 +146,13 @@ interface CommandMarkers {
 function markers(): CommandMarkers {
     const nonce = randomUUID()
     return {
-        start: `__CHATXT_SHELL_START_${nonce}__`,
-        end: `__CHATXT_SHELL_END_${nonce}:`,
+        start: `__SHELL_START_${nonce}__`,
+        end: `__SHELL_END_${nonce}:`,
     }
 }
 
-/** ANSI-C quoting：把命令体压进 $'...' 单行字符串（对照 dsh quoteForBash）。 */
+/** ANSI-C quoting：把命令体压进 $'...' 单行字符串（对照 dsh quoteForBash）。
+ * busybox ash 与 bash 均支持，UTF-8 字节经管道原样传递，无编码转换问题。 */
 function quoteForBash(value: string): string {
     return `$'${value
         .replaceAll('\\', '\\\\')
@@ -127,27 +161,21 @@ function quoteForBash(value: string): string {
         .replaceAll('\n', '\\n')}'`
 }
 
-/** 命令体编码：pwsh 的 stdin 逐行模式下按 Console.InputEncoding（ANSI/GBK）解码输入，
- * 直接发送中文字符命令会被损坏。用 UTF-16LE 的 base64 传输命令体（pwsh -EncodedCommand
- * 的官方思路），wrapper 全部为 ASCII，任何解码路径都无损。 */
-function encodeForPwsh(command: string): string {
-    return Buffer.from(command, 'utf16le').toString('base64')
-}
-
 /**
- * 单物理行 wrapper（对照 dsh wrapCommand 语义）：
- * - pwsh：命令体经 base64(UTF-16LE) 解码后 Invoke-Expression；$LASTEXITCODE 先清空，
- *   外部命令退出码优先，否则用 $? 映射 0/1；try/catch 把语法错误归一为失败而不炸掉 shell。
- * - bash：eval -- 执行，$? 即为退出码（bash 从管道读取时无编码转换，字节原样传递）。
+ * 单物理行 wrapper（对照 dsh wrapCommand 语义，两侧统一为 bash 语法）：
+ * - 命令体先经 `bash -n -c` 静态语法校验再 eval。原因：ash 从管道逐行读命令时，
+ *   `eval` 内的语法错误（未闭合引号、残缺 if/for 等）会**杀死外层 shell**；
+ *   预校验把这类错误归一为 exit 2 + 报错信息，持久 shell（及其中积累的变量、
+ *   函数）不受损伤。GNU bash 下 eval 语法错误本不致命，但预校验让两侧行为一致。
+ * - eval 执行命令体，`$?` 即为退出码；顶层 `exit` 会退出 shell，由 onExit
+ *   报告并按 dsh 的 reset 契约在下次调用重建。
+ * - 注意 busybox ash 的 eval 不接受 `--` 选项分隔符（会把它当作命令），
+ *   且 eval 只是拼接参数、`--` 并无必要，故省略。
  * END marker 与退出码同行（'END_nonce:' + code），解析端用 /^(\d+)\r?\n/ 提取，
  * 因此命令输出或回显中的 marker 文本永远无法伪造完成。
  */
 function wrapCommand(command: string, marker: CommandMarkers): string {
-    if (isWin) {
-        const body = `([System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('${encodeForPwsh(command)}')))`
-        return `Write-Output '${marker.start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ${body}; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${marker.end}' + $__s)`
-    }
-    return `printf '%s\\n' '${marker.start}'; eval -- ${quoteForBash(command)}; __chfile_status=$?; printf '%s%s\\n' '${marker.end}' "$__chfile_status"`
+    return `printf '%s\\n' '${marker.start}'; __chfile_cmd=${quoteForBash(command)}; if bash -n -c "$__chfile_cmd"; then eval "$__chfile_cmd"; __chfile_status=$?; else __chfile_status=2; printf '%s\\n' '[syntax error: 命令未执行]'; fi; unset __chfile_cmd; printf '%s%s\\n' '${marker.end}' "$__chfile_status"`
 }
 
 interface CapturedOutput {
@@ -291,13 +319,26 @@ async function run_shell({
     }
 }
 
-// ---------------------------------------------------------------------------
-// 2. str_replace_editor
-// ---------------------------------------------------------------------------
-
 async function readFileLines(absPath: string): Promise<string[]> {
     const content = await fs.readFile(absPath, 'utf-8')
     return content.split('\n')
+}
+
+// 编辑结果回显片段时，替换/插入位置上下各附带的行数
+const SNIPPET_CONTEXT_LINES = 3
+
+/** 文件实际行数：以 '\n' 分割后，末尾空元素不计（文件以换行结尾时 split 会多出一个空串） */
+function countLines(lines: string[]): number {
+    return lines.length > 0 && lines[lines.length - 1] === ''
+        ? lines.length - 1
+        : lines.length
+}
+
+/** 4 位右对齐行号 + 内容，便于 AI 引用行号做后续编辑 */
+function formatLines(lines: string[], startLine: number): string {
+    return lines
+        .map((text, i) => `${String(startLine + i).padStart(4)} | ${text}`)
+        .join('\n')
 }
 
 async function str_replace_editor({
@@ -317,7 +358,11 @@ async function str_replace_editor({
 }): Promise<{ output: string } | { error: string }> {
     const abs = path.isAbsolute(file_path)
         ? file_path
-        : path.resolve(file_path)
+        : path.resolve(chatxt.context.chatFileDirname, file_path)
+
+    if (abs === chatxt.context.chatFilePath && command !== 'view') {
+        return { error: `目标 ${abs} 为只读，仅支持 view 指令` }
+    }
 
     try {
         switch (command) {
@@ -330,9 +375,14 @@ async function str_replace_editor({
                             error: 'view_range 格式应为 "起始:结束"，如 "1:50"',
                         }
                     }
-                    return { output: lines.slice(start - 1, end).join('\n') }
+                    const slice = lines.slice(start - 1, end)
+                    return {
+                        output: `${slice.join('\n')}\n[显示第 ${start}-${start - 1 + slice.length} 行，共 ${countLines(lines)} 行]`,
+                    }
                 }
-                return { output: lines.join('\n') }
+                return {
+                    output: `${lines.join('\n')}\n[共 ${countLines(lines)} 行]`,
+                }
             }
 
             case 'str_replace': {
@@ -343,16 +393,40 @@ async function str_replace_editor({
                     return { error: `未找到 old_string 的匹配` }
                 }
                 if (count > 1) {
+                    // 列出各匹配的起始行号，帮助 AI 补充上下文消歧
+                    const lineNumbers: number[] = []
+                    let idx = content.indexOf(old_string)
+                    while (idx !== -1) {
+                        lineNumbers.push(
+                            content.slice(0, idx).split('\n').length
+                        )
+                        idx = content.indexOf(
+                            old_string,
+                            idx + old_string.length
+                        )
+                    }
                     return {
-                        error: `找到 ${count} 处匹配，old_string 必须唯一`,
+                        error: `找到 ${count} 处匹配（第 ${lineNumbers.join('、')} 行），old_string 必须唯一`,
                     }
                 }
-                await fs.writeFile(
-                    abs,
-                    content.replace(old_string, new_string),
-                    'utf-8'
+                const at = content.indexOf(old_string)
+                const matchLine = content.slice(0, at).split('\n').length
+                // 用函数形式替换，避免 new_string 中的 $&、$1 等被 String.replace 特殊展开
+                const replaced = content.replace(old_string, () => new_string)
+                await fs.writeFile(abs, replaced, 'utf-8')
+                const newLines = replaced.split('\n')
+                const replacedSpan = new_string.split('\n').length
+                const ctxStart = Math.max(
+                    0,
+                    matchLine - 1 - SNIPPET_CONTEXT_LINES
                 )
-                return { output: `已在 ${file_path} 完成替换` }
+                const snippet = newLines.slice(
+                    ctxStart,
+                    matchLine - 1 + replacedSpan + SNIPPET_CONTEXT_LINES
+                )
+                return {
+                    output: `已在 ${file_path} 完成替换（匹配起始于第 ${matchLine} 行，文件共 ${countLines(newLines)} 行）。替换后片段：\n${formatLines(snippet, ctxStart + 1)}`,
+                }
             }
 
             case 'create': {
@@ -363,7 +437,9 @@ async function str_replace_editor({
                     }
                 } catch {
                     await fs.writeFile(abs, new_string, 'utf-8')
-                    return { output: `已创建 ${file_path}` }
+                    return {
+                        output: `已创建 ${file_path}（共 ${countLines(new_string.split('\n'))} 行）`,
+                    }
                 }
             }
 
@@ -372,7 +448,15 @@ async function str_replace_editor({
                 const lines = await readFileLines(abs)
                 lines.splice(line - 1, 0, new_string)
                 await fs.writeFile(abs, lines.join('\n'), 'utf-8')
-                return { output: `已在 ${file_path} 的第 ${line} 行插入内容` }
+                const insertedSpan = new_string.split('\n').length
+                const ctxStart = Math.max(0, line - 1 - SNIPPET_CONTEXT_LINES)
+                const snippet = lines.slice(
+                    ctxStart,
+                    line - 1 + insertedSpan + SNIPPET_CONTEXT_LINES
+                )
+                return {
+                    output: `已在 ${file_path} 的第 ${line} 行插入内容（文件共 ${countLines(lines)} 行）。插入后片段：\n${formatLines(snippet, ctxStart + 1)}`,
+                }
             }
 
             default:
@@ -385,16 +469,18 @@ async function str_replace_editor({
     }
 }
 
-// ---------------------------------------------------------------------------
-// 注册
-// ---------------------------------------------------------------------------
-
-chatxt.runtime.exposeTool([
+const runShellDesc =
+    '在 bash 中运行命令。状态跨命令调用与对话持久。请避免产生大量输出的命令，长命令请放后台（如 sleep 10 &）。' +
+    `文件 ${path.basename(chatxt.context.chatFilePath)} 不是多余文件，改动须用户确认。` +
+    (isWin
+        ? '\n当前环境为 Windows，已自动启用 BusyBox for Windows 的 bash Applet，非 PowerShell' +
+          `\n支持命令 (也可以直接运行任意 Windows 二进制): ${BUSYBOX_SUPPORT_APPLETS.join(', ')}` +
+          '\n请使用 `&&` 连接命令而非 `;`。如果需要平台特定功能请用 cmd /c (不要使用 cmd //c)， `pwsh -Command`。'
+        : '')
+await chatxt.runtime.exposeTool([
     {
         name: 'run_shell',
-        description: isWin
-            ? '在 PowerShell 中运行命令。状态跨命令调用与对话持久。无互联网访问。请避免产生大量输出的命令，长命令请放后台（如 Start-Job）。'
-            : '在 bash 中运行命令。状态跨命令调用与对话持久。无互联网访问。请避免产生大量输出的命令，长命令请放后台（如 sleep 10 &）。',
+        description: runShellDesc,
         parameters: {
             type: 'object',
             properties: {
