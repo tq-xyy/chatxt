@@ -1,5 +1,5 @@
-import { existsSync } from 'fs'
 import { readFile, appendFile } from 'fs/promises'
+import { isFile, isPlainUTF8Text } from './utils/file-utils'
 import * as path from 'path'
 
 import type {
@@ -223,23 +223,31 @@ export class ChatFile {
             const filePathRel = path.relative(process.cwd(), filePath)
             const filePathAbs = path.resolve(filePath)
 
+            const argIsFile = await isFile(filePath)
+
             if (comp.type === 'tool') {
-                if (!existsSync(filePath)) {
+                if (!argIsFile) {
                     printWarningMessage(
-                        `Tool Script (${filePathRel}) is not found`
+                        `Tool Script (${filePathRel}) is not found or a file`
                     )
                     continue
                 }
                 toolSet.add(filePath)
             } else if (comp.type === 'file') {
-                if (!existsSync(filePath)) {
+                if (!argIsFile) {
                     printWarningMessage(
-                        `External file (${filePathRel}) is not found`
+                        `External file (${filePathRel}) is not found or a file`
                     )
                     continue
                 }
 
                 if (!this.referredFiles.has(filePathAbs)) {
+                    if (!(await isPlainUTF8Text(filePath))) {
+                        printWarningMessage(
+                            `External file must be plain text encoded by UTF-8:` +
+                                ` ${filePathRel}`
+                        )
+                    }
                     try {
                         const text = await readFile(filePath, 'utf-8')
 
@@ -256,7 +264,7 @@ export class ChatFile {
 
                 content += `${comp.arg}`
             } else if (comp.type === 'include') {
-                if (!existsSync(filePath)) {
+                if (!argIsFile) {
                     printWarningMessage(
                         `Include file (${filePathRel}) is not found`
                     )

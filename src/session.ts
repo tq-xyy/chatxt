@@ -1,4 +1,3 @@
-import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
 
 import { getModelGateway, type Config } from './config'
@@ -14,6 +13,7 @@ import {
     ProgressReporter,
 } from './tui'
 import { parseSSEStream } from './utils/sse-stream'
+import { isFile } from './utils/file-utils'
 
 import type {
     AssistantMessage,
@@ -125,7 +125,7 @@ export class ChatSession {
     }
 
     async loop(): Promise<void> {
-        if (!existsSync(this.chatFilePath)) {
+        if (!(await isFile(this.chatFilePath))) {
             printWarningMessage(
                 `${this.chatFilePath} don't exist. Automatically create a none file.`
             )
