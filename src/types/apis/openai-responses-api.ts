@@ -27,6 +27,17 @@ export type ResponsesInputItem =
           call_id: string
           output: string
       }
+    | ResponsesReasoningItem
+
+/** 思维链 item：思考模式下 DeepSeek 等要求回传上轮 reasoning_text */
+export interface ResponsesReasoningItem {
+    type: 'reasoning'
+    id?: string
+    content: {
+        type: 'reasoning_text'
+        text: string
+    }[]
+}
 
 export interface ResponsesRequest {
     model: string
@@ -126,7 +137,11 @@ export type ResponsesStreamEvent =
           response: {
               id: string
               status: string
-              output: (ResponsesFunctionCallItem | ResponsesMessageItem)[]
+              output: (
+                  | ResponsesFunctionCallItem
+                  | ResponsesMessageItem
+                  | ResponsesReasoningItem
+              )[]
               usage: ResponsesUsage | null
           }
       }
@@ -135,7 +150,11 @@ export type ResponsesStreamEvent =
           response: {
               id: string
               status: string
-              output: (ResponsesFunctionCallItem | ResponsesMessageItem)[]
+              output: (
+                  | ResponsesFunctionCallItem
+                  | ResponsesMessageItem
+                  | ResponsesReasoningItem
+              )[]
               usage: ResponsesUsage | null
           }
       }

@@ -33,13 +33,22 @@ function toAnthropicMessages(messages: Message[]): AnthropicMessage[] {
             flushToolResults()
             result.push({ role: 'user', content: msg.content })
         } else if (msg.role === 'assistant') {
+            const content: AnthropicContentBlock[] = []
+            // thinking 模式（如 DeepSeek Anthropic 兼容端点）要求把上轮
+            // thinking block 回传，否则报 400。
+            // 注意：官方 Anthropic 端点会校验 signature，此处未存储签名，
+            // 仅在兼容网关下可用。
+            if (msg.reasoning_content) {
+                content.push({
+                    type: 'thinking',
+                    thinking: msg.reasoning_content,
+                })
+            }
+            if (msg.content) {
+                content.push({ type: 'text', text: msg.content })
+            }
             flushToolResults()
-            result.push({
-                role: 'assistant',
-                content: msg.content
-                    ? [{ type: 'text', text: msg.content }]
-                    : [],
-            })
+            result.push({ role: 'assistant', content })
         } else if (msg.role === 'tool-call') {
             const block: AnthropicContentBlock = {
                 type: 'tool_use',

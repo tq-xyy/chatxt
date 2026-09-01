@@ -24,6 +24,20 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
         if (msg.role === 'user') {
             items.push({ type: 'message', role: 'user', content: msg.content })
         } else if (msg.role === 'assistant') {
+            // 思考模式（如 DeepSeek）要求把上轮 reasoning_text 回传，
+            // 否则报 400: The `reasoning_text` in the thinking mode
+            // must be passed back to the API.
+            if (msg.reasoning_content) {
+                items.push({
+                    type: 'reasoning',
+                    content: [
+                        {
+                            type: 'reasoning_text',
+                            text: msg.reasoning_content,
+                        },
+                    ],
+                })
+            }
             items.push({
                 type: 'message',
                 role: 'assistant',
