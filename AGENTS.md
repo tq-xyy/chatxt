@@ -15,6 +15,7 @@
 
 - 4 空格缩进，无分号，字符串用单引号
 - 格式问题用 `pnpm lint` 自动修复，不要手调
+- git 提交格式: `feat|fix|project|refactor|example: 一句话英文描述`, 例如 `feat: add a new ui button`
 
 ### 开发环境
 
