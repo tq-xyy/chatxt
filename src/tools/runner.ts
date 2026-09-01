@@ -29,7 +29,11 @@ function sendToChild(
 ): Promise<void> {
     return new Promise<void>((resovle, reject) => {
         try {
-            if (child.connected) {
+            if (
+                child.connected &&
+                child.exitCode === null &&
+                child.signalCode === null
+            ) {
                 child.send(message, error =>
                     error ? reject(error) : resovle()
                 )
