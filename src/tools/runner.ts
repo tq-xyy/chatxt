@@ -88,11 +88,7 @@ export class ToolRunner {
             },
         })
 
-        if (this.session.config.emitToConsole) {
-            child.stdout?.pipe(process.stderr)
-        } else {
-            child.stdout?.pipe(process.stdout)
-        }
+        child.stdout?.pipe(process.stderr)
 
         child.stderr?.pipe(process.stderr)
 
@@ -322,9 +318,7 @@ export class ToolRunner {
             request.model = this.session.config.model
         }
 
-        this.session.reporter.setPrompt(
-            'Call Function | Sub Agent Generating...'
-        )
+        this.session.panel.setPhase('subagent')
 
         const apiGateway = getModelGateway(this.session.config, request.model)
 
@@ -400,14 +394,13 @@ export class ToolRunner {
         }
 
         const emit = async (msg: StreamEvent) => {
+            this.session.panel.onEvent(msg)
             switch (msg.type) {
                 case 'reasoning-delta':
                     result.choices[0].message.reasoning_content += msg.delta
-                    this.session.reporter.update(msg.delta)
                     break
                 case 'content-delta':
                     result.choices[0].message.content += msg.delta
-                    this.session.reporter.update(msg.delta)
                     break
                 case 'response-end':
                     if (msg.finishReason) {
@@ -459,6 +452,9 @@ export class ToolRunner {
                 id,
                 error: (err as { message: string }).message,
             })
+        } finally {
+            // 子代理结束：恢复工具执行阶段（可能还有并行工具在跑）
+            this.session.panel.setPhase('tool')
         }
     }
 }

@@ -33,6 +33,8 @@ export interface Config {
     emitThinking?: boolean
     /** unit `ms`, defaluts to 16ms, be negative will write to file immedately */
     emitInterval?: number
+    /** show per-round summary lines (default hides them, activity line only) */
+    verbose?: boolean
 
     // completions options
     thinkingEffort?: string

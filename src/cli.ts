@@ -26,6 +26,10 @@ program
         '--exclude-history-tool-call',
         'remove history tool call from context to save tokens'
     )
+    .option(
+        '-v, --verbose',
+        'print a per-round summary line for each completed API request'
+    )
     .action(
         async (
             file,
@@ -36,6 +40,7 @@ program
                 emitThinking,
                 excludeHistoryToolCall,
                 emitToConsole,
+                verbose,
             }: {
                 model?: string
                 apiKey?: string
@@ -43,6 +48,7 @@ program
                 emitThinking: boolean
                 excludeHistoryToolCall: boolean
                 emitToConsole: boolean
+                verbose: boolean
             }
         ) => {
             const config = await loadConfig({
@@ -52,6 +58,7 @@ program
                 emitThinking,
                 excludeHistoryToolCall,
                 emitToConsole,
+                verbose,
             })
             const session = new ChatSession(file, config)
             await session.loop()

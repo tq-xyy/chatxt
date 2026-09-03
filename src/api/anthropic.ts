@@ -79,6 +79,7 @@ function toAnthropicMessages(messages: Message[]): AnthropicMessage[] {
 
 export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
     private outputFlag: OutputFlag = 'UNKNOWN'
+    private responseStarted = false
     private sumUsage: NormalizedUsage = {
         input: 0,
         output: 0,
@@ -93,6 +94,7 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
         toolDefinitions: ToolDef[]
     ): Promise<Response> {
         this.outputFlag = 'UNKNOWN'
+        this.responseStarted = false
         this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
 
         const reqBody: AnthropicRequest = {
@@ -164,6 +166,10 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
             case 'content_block_start': {
                 const block = event.content_block
                 if (block.type === 'tool_use') {
+                    if (!this.responseStarted) {
+                        this.responseStarted = true
+                        await emit({ type: 'response-start' })
+                    }
                     if (this.outputFlag !== 'TOOL') {
                         this.outputFlag = 'TOOL'
                         await emit({ type: 'function-call-start' })
@@ -184,6 +190,10 @@ export class AnthropicAPIAdapter implements APIAdapter<AnthropicStreamEvent> {
 
             case 'content_block_delta': {
                 const delta = event.delta
+                if (!this.responseStarted) {
+                    this.responseStarted = true
+                    await emit({ type: 'response-start' })
+                }
                 if (delta.type === 'text_delta') {
                     if (this.outputFlag !== 'ASSISTANT') {
                         this.outputFlag = 'ASSISTANT'

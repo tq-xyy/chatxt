@@ -66,6 +66,7 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
 
 export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEvent> {
     private outputFlag: OutputFlag = 'UNKNOWN'
+    private responseStarted = false
     private sumUsage: NormalizedUsage = {
         input: 0,
         output: 0,
@@ -83,6 +84,7 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
         toolDefinitions: ToolDef[]
     ): Promise<Response> {
         this.outputFlag = 'UNKNOWN'
+        this.responseStarted = false
         this.sumUsage = { input: 0, output: 0, cached: 0, thinking: 0 }
         this.endedToolCallIndexes = new Set()
 
@@ -152,6 +154,10 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
             case 'response.output_item.added': {
                 const item = event.item
                 if (item.type === 'function_call') {
+                    if (!this.responseStarted) {
+                        this.responseStarted = true
+                        await emit({ type: 'response-start' })
+                    }
                     if (this.outputFlag !== 'TOOL') {
                         this.outputFlag = 'TOOL'
                         await emit({ type: 'function-call-start' })
@@ -183,6 +189,10 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
             }
 
             case 'response.output_text.delta': {
+                if (!this.responseStarted) {
+                    this.responseStarted = true
+                    await emit({ type: 'response-start' })
+                }
                 if (this.outputFlag !== 'ASSISTANT') {
                     this.outputFlag = 'ASSISTANT'
                     await emit({ type: 'content-start' })
@@ -193,6 +203,10 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
 
             case 'response.function_call_arguments.delta': {
                 // 标准 OpenAI 的流式参数分片（此网关未使用，预留兼容）
+                if (!this.responseStarted) {
+                    this.responseStarted = true
+                    await emit({ type: 'response-start' })
+                }
                 if (this.outputFlag !== 'TOOL') {
                     this.outputFlag = 'TOOL'
                     await emit({ type: 'function-call-start' })
@@ -212,6 +226,10 @@ export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEven
             case 'response.reasoning_text.delta': {
                 // - Opencode 网关: response.reasoning_summary_text.delta
                 // - DeepSeek 官方: response.reasoning_text.delta
+                if (!this.responseStarted) {
+                    this.responseStarted = true
+                    await emit({ type: 'response-start' })
+                }
                 if (this.outputFlag !== 'THINKING') {
                     this.outputFlag = 'THINKING'
                     await emit({ type: 'reasoning-start' })

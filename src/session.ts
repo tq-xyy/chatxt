@@ -10,7 +10,7 @@ import {
     printExceptionMessage,
     printFinalStatus,
     printWarningMessage,
-    ProgressReporter,
+    ProgressPanel,
 } from './tui'
 import { parseSSEStream } from './utils/sse-stream'
 import { isFile } from './utils/file-utils'
@@ -92,7 +92,7 @@ export class ChatSession {
     public config: Config
     public file: ChatFile
     public toolRunner: ToolRunner
-    public reporter: ProgressReporter
+    public panel: ProgressPanel
     public api: APIAdapter
 
     private sumUsages: NormalizedUsage[]
@@ -111,10 +111,11 @@ export class ChatSession {
         this.config = config
         this.file = new ChatFile(chatFilePath, config)
         this.startTime = performance.now()
-        this.reporter = new ProgressReporter(
-            'Requesting...',
-            !!this.config.emitToConsole || !process.stdout.isTTY
-        )
+        this.panel = new ProgressPanel({
+            config,
+            // 面板独占 stdout，写文件模式下才可用；emitToConsole 静默
+            enabled: !this.config.emitToConsole && !!process.stdout.isTTY,
+        })
         this.toolRunner = new ToolRunner(this)
 
         this.sumUsages = []
@@ -137,7 +138,7 @@ export class ChatSession {
                 '',
             ].join('\n')
             await writeFile(this.chatFilePath, content, 'utf-8')
-            this.reporter.close()
+            this.panel.close()
             return
         }
 
@@ -158,7 +159,7 @@ export class ChatSession {
                 (lastMessage.content.trimEnd().length || 0) < 1
             ) {
                 printWarningMessage('No user input.')
-                this.reporter.close()
+                this.panel.close()
                 return
             }
 
@@ -170,9 +171,9 @@ export class ChatSession {
             this.shouldStop = false
 
             while (!this.shouldStop) {
-                this.reporter.setPrompt('Requesting...')
-
                 try {
+                    // fetch 内 await 消耗 TTFB，必须在此记账才能捕获网络等待
+                    this.panel.onRequestStart()
                     const resp = await this.api.buildRequest(
                         this.config,
                         gateway,
@@ -191,7 +192,7 @@ export class ChatSession {
                     }
                     await this.api.handleStreamEnd(this.onEmit.bind(this))
                 } catch (err) {
-                    this.reporter.clear()
+                    this.panel.clear()
                     retryTimes += 1
                     if (retryTimes <= 3) {
                         console.log()
@@ -211,6 +212,8 @@ export class ChatSession {
     }
 
     private async onEmit(msg: StreamEvent): Promise<void> {
+        this.panel.onEvent(msg)
+
         switch (msg.type) {
             case 'reasoning-start':
                 if (this.config.emitThinking) {
@@ -219,13 +222,12 @@ export class ChatSession {
                         withSuffixNewLine: true,
                     })
                 }
-                this.reporter.setPrompt('Thinking...')
+                this.panel.setPhase('thinking')
                 break
             case 'reasoning-delta': {
                 if (this.config.emitThinking) {
                     await this.file.appendContent(msg.delta)
                 }
-                this.reporter.update(msg.delta)
                 const assistant = this.getPendingAssistant()
                 assistant.reasoning_content =
                     (assistant.reasoning_content ?? '') + msg.delta
@@ -239,11 +241,10 @@ export class ChatSession {
                     withPrefixNewLine: true,
                     withSuffixNewLine: true,
                 })
-                this.reporter.setPrompt('Generating Answer...')
+                this.panel.setPhase('output')
                 break
             case 'content-delta': {
                 await this.file.appendContent(msg.delta)
-                this.reporter.update(msg.delta)
                 const assistant = this.getPendingAssistant()
                 assistant.content = (assistant.content ?? '') + msg.delta
                 break
@@ -256,14 +257,12 @@ export class ChatSession {
                     withPrefixNewLine: true,
                     withSuffixNewLine: false,
                 })
-                this.reporter.setPrompt('Generating Function Call...')
+                // 生成函数调用参数仍属输出阶段
+                this.panel.setPhase('output')
                 break
             case 'function-call-delta':
                 await this.file.appendToolCallChunkToToolBlock(msg.delta)
                 this.toolCallDeltaBuffer.push(msg.delta)
-                this.reporter.update(
-                    msg.delta.type === 'arguments' ? msg.delta.delta : ''
-                )
                 break
             case 'function-call-end': {
                 const toolCalls = mergeFunctionCallDeltas(
@@ -273,7 +272,11 @@ export class ChatSession {
 
                 this.sumToolCall += toolCalls.length
 
-                this.reporter.setPrompt('Call Function...')
+                // 工具开始执行的时序只在此处可知（适配器不携带）
+                this.panel.setPendingToolNames(
+                    toolCalls.map(c => c.name).filter(Boolean)
+                )
+                this.panel.setPhase('tool')
 
                 this.messages.push(...toolCalls)
 
@@ -321,7 +324,7 @@ export class ChatSession {
         }
         await this.file.flushBuffer()
 
-        this.reporter.close()
+        this.panel.close()
 
         printFinalStatus({
             status,
@@ -330,6 +333,12 @@ export class ChatSession {
             toolCallCount: this.sumToolCall,
             config: this.config,
             totalCost: computeTotalCost(this.sumUsages, this.config),
+            requestCount: this.panel.summary.roundCount,
+            timing: {
+                netMs: this.panel.summary.netMs,
+                outMs: this.panel.summary.outMs,
+                toolMs: this.panel.summary.toolMs,
+            },
         })
 
         await this.toolRunner.close()

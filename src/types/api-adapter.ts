@@ -13,6 +13,10 @@ interface ReasoningStartEvent {
     type: 'reasoning-start'
 }
 
+interface ResponseStartEvent {
+    type: 'response-start'
+}
+
 interface ReasoningDeltaEvent {
     type: 'reasoning-delta'
     /** only for display */
@@ -57,6 +61,7 @@ interface ResponseEndEvent {
 }
 
 export type StreamEvent =
+    | ResponseStartEvent
     | ReasoningStartEvent
     | ReasoningDeltaEvent
     | ReasoningEndEvent

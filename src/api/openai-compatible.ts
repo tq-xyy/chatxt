@@ -90,6 +90,7 @@ function toOpenAIMessages(
 
 export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleChunk> {
     private outputFlag: OutputFlag = 'UNKNOWN'
+    private responseStarted = false
     private reasoningField: 'reasoning_content' | 'reasoning' =
         'reasoning_content'
     private pendingFinishReason: FinishReason | null = null
@@ -102,6 +103,7 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
         toolDefinitions: ToolDef[]
     ): Promise<Response> {
         this.outputFlag = 'UNKNOWN'
+        this.responseStarted = false
         this.pendingFinishReason = null
         this.pendingUsage = null
 
@@ -182,6 +184,11 @@ export class OpenAICompatibleAPIAdapter implements APIAdapter<OpenAICompatibleCh
         const toolCallDelta:
             OpenAICompatibleToolCallChunk[] | null | undefined =
             choice.delta?.tool_calls
+
+        if (this.outputFlag === 'UNKNOWN' && !this.responseStarted) {
+            this.responseStarted = true
+            await emit({ type: 'response-start' })
+        }
 
         if (reasoning) {
             if (this.outputFlag !== 'THINKING') {
