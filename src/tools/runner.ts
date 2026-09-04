@@ -21,7 +21,7 @@ import type { APIAdapter, StreamEvent } from '../types/api-adapter'
 import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-api'
 import type { ChatxtToolAPI } from '../types/tool-runtime-api'
 import type { ChatSession } from '../session'
-import { chatxtVersion } from '../utils/version'
+import { chatxtVersion } from '../utils/meta'
 
 function sendToChild(
     child: ChildProcess,

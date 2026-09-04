@@ -1,8 +1,7 @@
 import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
 import { join, dirname } from 'path'
 import { printWarningMessage } from './tui'
-import type { Pricing } from './common/pricing'
-import { modelOfficalPricing } from './common/data/model-pricing'
+import { type Pricing, modelOfficalPricing } from './common/pricing'
 
 export interface ModelConfig {
     alias?: string

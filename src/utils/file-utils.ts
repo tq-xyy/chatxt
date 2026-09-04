@@ -1,5 +1,7 @@
 import { readFile, open, stat, type FileHandle } from 'fs/promises'
 import path from 'path'
+import * as yaml from 'yaml'
+import { jsonc } from 'jsonc'
 
 export async function isFile(filePath: string): Promise<boolean> {
     try {
@@ -62,4 +64,23 @@ export async function isPlainUTF8Text(filePath: string): Promise<boolean> {
     } finally {
         if (fileHandle) await fileHandle.close()
     }
+}
+
+export async function loadDataWithAutoExt(...pathsWithoutExt: string[]) {
+    const pathWithoutExt = path.join(...pathsWithoutExt)
+
+    if (await isFile(pathWithoutExt + '.json')) {
+        return await jsonc.safe.read(pathWithoutExt + '.json')
+    }
+    if (await isFile(pathWithoutExt + '.jsonc')) {
+        return await jsonc.safe.read(pathWithoutExt + '.jsonc')
+    }
+    if (await isFile(pathWithoutExt + '.yaml')) {
+        return await yaml.parse(
+            await readFile(pathWithoutExt + '.yaml', 'utf-8')
+        )
+    }
+    throw new Error(
+        `Data file ${pathWithoutExt}.{json,jsonc,yaml} is not found`
+    )
 }

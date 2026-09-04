@@ -1,5 +1,12 @@
 import type { NormalizedUsage } from './usage'
-import { modelOfficalPricing, USD_TO_CNY } from './data/model-pricing'
+import { loadDataWithAutoExt } from '../utils/file-utils'
+import { DATA_DIR } from '../utils/meta'
+
+export const modelOfficalPricing: Record<string, Pricing | Pricing[]> =
+    await loadDataWithAutoExt(DATA_DIR, 'model-offical-pricing')
+
+export const { USD_TO_CNY }: { USD_TO_CNY: number } =
+    await loadDataWithAutoExt(DATA_DIR, 'exchange-rate')
 
 type Limition =
     | {

@@ -1,7 +1,7 @@
 import { Command } from 'commander'
 import { ChatSession } from './session'
 import { initConfig, loadConfig } from './config'
-import { chatxtVersion } from './utils/version'
+import { chatxtVersion } from './utils/meta'
 
 const program = new Command()
 
