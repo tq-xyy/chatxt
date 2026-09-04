@@ -1,6 +1,6 @@
 {
     "name": "chatxt",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "type": "module",
     "description": "Chatxt - AI conversations recorded as .chat.txt files",
     "scripts": {
