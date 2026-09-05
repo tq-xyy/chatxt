@@ -14,8 +14,8 @@ program
     .option('-k, --api-key <model>', 'api key from your model provider')
     .option('--endpoint <model>', 'the endpoint of model provider')
     .option(
-        '-t, --emit-thinking',
-        'emit reasoning chain in .chat.txt (if available)'
+        '--no-emit-thinking',
+        'disable emitting reasoning chain in .chat.txt (force if thinking unavailable)'
     )
     .option(
         '-e, --emit-to-console',

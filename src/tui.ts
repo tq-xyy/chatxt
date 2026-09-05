@@ -454,7 +454,9 @@ export class ProgressPanel {
         const line =
             this.phaseColor(phaseText) +
             (this.currentPhase === 'tool' && this.pendingToolNames.length > 0
-                ? ` [${this.pendingToolNames.join(', ')}]`
+                ? this.pendingToolNames.length <= 2
+                    ? ` [${this.pendingToolNames.join(', ')}]`
+                    : ` [${this.pendingToolNames.slice(0, 2).join(', ')}, ...]`
                 : '') +
             ` ${this.roundIndex} · ${totalSec}s`
 
