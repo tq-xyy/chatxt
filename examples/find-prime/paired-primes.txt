@@ -1,4 +1,4 @@
-#!node --import tsx ./src/cli.ts -t -e
+#!node --import tsx ./src/cli.ts -e
 ----- CHAT ROLE: SYSTEM -----
 @tool(tools/prime.ts)
 
