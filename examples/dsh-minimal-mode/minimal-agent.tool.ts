@@ -37,28 +37,15 @@ const BUSYBOX_POSSIBLE_PATH = [
     'windows/busybox64u.exe',
     'windows/busybox64a.exe',
 ]
-const BUSYBOX_SUPPORT_APPLETS = // busybox --list
-    (
-        '[,[[,ar,arch,ascii,ash,awk,base32,base64,basename,bash,bc,' +
-        'bunzip2,busybox,bzcat,bzip2,cal,cat,cdrop,chattr,chmod,cksum,' +
-        'clear,cmp,comm,cp,cpio,crc32,crond,crontab,cut,date,dc,dd,df,' +
-        'diff,dirname,dos2unix,dpkg,dpkg-deb,drop,du,echo,ed,egrep,env,' +
-        'expand,expr,factor,false,fgrep,find,flock,fold,free,fsync,' +
-        'ftpget,ftpput,getopt,grep,groups,gunzip,gzip,hd,head,hexdump,' +
-        'httpd,iconv,id,inotifyd,install,ipcalc,jn,join,kill,killall,lash,' +
-        'less,link,ln,logname,ls,lsattr,lzcat,lzma,lzop,lzopcat,make,man,' +
-        'md5sum,mkdir,mktemp,mv,nc,nl,nproc,od,paste,patch,pdpmake,pdrop,' +
-        'pgrep,pidof,pipe_progress,pkill,printenv,printf,ps,pwd,readlink,' +
-        'realpath,reset,rev,rm,rmdir,rpm,rpm2cpio,sed,seq,sh,sha1sum,sha256sum,' +
-        'sha384sum,sha3sum,sha512sum,shred,shuf,sleep,sort,split,ssl_client,' +
-        'stat,strings,stty,su,sum,sync,tac,tail,tar,tee,test,time,timeout,' +
-        'touch,tr,true,truncate,ts,tsort,ttysize,uname,uncompress,unexpand,' +
-        'uniq,unix2dos,unlink,unlzma,unlzop,unxz,unzip,uptime,usleep,uudecode,' +
-        'uuencode,uuidgen,vi,watch,wc,wget,which,whoami,whois,xargs,xxd,xz,' +
-        'xzcat,yes,zcat'
-    ).split(',')
 
 let shell: ChildProcess | null = null
+
+const UTF8_ENV: NodeJS.ProcessEnv = {
+    ...process.env,
+    PYTHONIOENCODING: 'utf-8',
+    LC_ALL: 'C.UTF-8',
+    LANG: 'C.UTF-8',
+}
 
 // 串行队列：同一 shell 的命令必须排队执行（对照 dsh 的 serialized 模式）
 let queue: Promise<void> = Promise.resolve()
@@ -103,12 +90,14 @@ function startShell(): ChildProcess {
         return spawn(busyboxBinary, ['bash'], {
             stdio: ['pipe', 'pipe', 'pipe'],
             cwd: chatxt.context.chatFileDirname,
+            env: UTF8_ENV,
         })
     }
     // bash 无编码问题；noprofile/norc 与 dsh 的 bash 启动参数一致
     return spawn('bash', ['--noprofile', '--norc'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: chatxt.context.chatFileDirname,
+        env: UTF8_ENV,
     })
 }
 
@@ -470,12 +459,12 @@ async function str_replace_editor({
 }
 
 const runShellDesc =
-    '在 bash 中运行命令。状态跨命令调用与对话持久。请避免产生大量输出的命令，长命令请放后台（如 sleep 10 &）。' +
+    '在 bash 中运行命令。状态跨命令调用持久（每次对话重置）。请避免产生大量输出的命令，长命令请放后台（如 sleep 10 &）。' +
     `文件 ${path.basename(chatxt.context.chatFilePath)} 不是多余文件，改动须用户确认。` +
     (isWin
         ? '\n当前环境为 Windows，已自动启用 BusyBox for Windows 的 bash Applet，非 PowerShell' +
-          `\n支持命令 (也可以直接运行任意 Windows 二进制): ${BUSYBOX_SUPPORT_APPLETS.join(', ')}` +
-          '\n请使用 `&&` 连接命令而非 `;`。如果需要平台特定功能请用 cmd /c (不要使用 cmd //c)， `pwsh -Command`。'
+          `\n支持大多数常见命令 (你可以假设命令存在，出错后再验证兼容性), 也可以直接运行任意 Windows 二进制` +
+          '\n如果需要平台特定功能请用 cmd /c (不要使用 cmd //c) 或者 `pwsh -Command`'
         : '')
 await chatxt.runtime.exposeTool([
     {
