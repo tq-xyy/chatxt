@@ -211,58 +211,40 @@ export class ChatSession {
         }
     }
 
-    private async onEmit(msg: StreamEvent): Promise<void> {
-        this.panel.onEvent(msg)
+    private async onEmit(event: StreamEvent): Promise<void> {
+        this.panel.onStreamEvent(event)
+        await this.file.onStreamEvent(event)
 
-        switch (msg.type) {
+        switch (event.type) {
             case 'reasoning-start':
-                if (this.config.emitThinking) {
-                    this.file.appendRoleLine('THINKING', {
-                        withPrefixNewLine: true,
-                        withSuffixNewLine: true,
-                    })
-                }
                 this.panel.setPhase('thinking')
                 break
             case 'reasoning-delta': {
-                if (this.config.emitThinking) {
-                    await this.file.appendContent(msg.delta)
-                }
                 const assistant = this.getPendingAssistant()
                 assistant.reasoning_content =
-                    (assistant.reasoning_content ?? '') + msg.delta
+                    (assistant.reasoning_content ?? '') + event.delta
                 break
             }
             case 'reasoning-end':
                 break
 
             case 'content-start':
-                this.file.appendRoleLine('ASSISTANT', {
-                    withPrefixNewLine: true,
-                    withSuffixNewLine: true,
-                })
                 this.panel.setPhase('output')
                 break
             case 'content-delta': {
-                await this.file.appendContent(msg.delta)
                 const assistant = this.getPendingAssistant()
-                assistant.content = (assistant.content ?? '') + msg.delta
+                assistant.content = (assistant.content ?? '') + event.delta
                 break
             }
             case 'content-end':
                 break
 
             case 'function-call-start':
-                this.file.appendRoleLine('TOOL', {
-                    withPrefixNewLine: true,
-                    withSuffixNewLine: false,
-                })
                 // 生成函数调用参数仍属输出阶段
                 this.panel.setPhase('output')
                 break
             case 'function-call-delta':
-                await this.file.appendToolCallChunkToToolBlock(msg.delta)
-                this.toolCallDeltaBuffer.push(msg.delta)
+                this.toolCallDeltaBuffer.push(event.delta)
                 break
             case 'function-call-end': {
                 const toolCalls = mergeFunctionCallDeltas(
@@ -292,18 +274,18 @@ export class ChatSession {
             }
 
             case 'response-end': {
-                if (msg.finishReason) {
-                    if (msg.finishReason === 'tool_calls') {
+                if (event.finishReason) {
+                    if (event.finishReason === 'tool_calls') {
                         this.shouldStop = false
                     } else {
-                        processFinishReason(msg.finishReason)
+                        processFinishReason(event.finishReason)
                         this.shouldStop = true
                     }
                 }
-                if (msg.usage) {
+                if (event.usage) {
                     this.addUsageRecord({
-                        ...msg.usage,
-                        model: msg.usage.model ?? this.config.model,
+                        ...event.usage,
+                        model: event.usage.model ?? this.config.model,
                     })
                 }
                 break
@@ -317,7 +299,7 @@ export class ChatSession {
         }
 
         if (status === 'ok') {
-            this.file.appendRoleLine('USER', {
+            await this.file.appendRoleLine('USER', {
                 withPrefixNewLine: true,
                 withSuffixNewLine: true,
             })

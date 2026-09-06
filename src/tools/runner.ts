@@ -393,35 +393,36 @@ export class ToolRunner {
             usage: undefined,
         }
 
-        const emit = async (msg: StreamEvent) => {
-            this.session.panel.onEvent(msg)
-            switch (msg.type) {
+        const emit = async (event: StreamEvent) => {
+            this.session.panel.onStreamEvent(event)
+            switch (event.type) {
                 case 'reasoning-delta':
-                    result.choices[0].message.reasoning_content += msg.delta
+                    result.choices[0].message.reasoning_content += event.delta
                     break
                 case 'content-delta':
-                    result.choices[0].message.content += msg.delta
+                    result.choices[0].message.content += event.delta
                     break
                 case 'response-end':
-                    if (msg.finishReason) {
+                    if (event.finishReason) {
                         result.choices[0].finish_reason =
-                            msg.finishReason as OpenAICompatibleResponse['choices'][0]['finish_reason']
+                            event.finishReason as OpenAICompatibleResponse['choices'][0]['finish_reason']
                     }
-                    if (msg.usage) {
+                    if (event.usage) {
                         result.usage = {
-                            prompt_tokens: msg.usage.input,
-                            completion_tokens: msg.usage.output,
-                            total_tokens: msg.usage.input + msg.usage.output,
-                            prompt_cache_hit_tokens: msg.usage.cached,
+                            prompt_tokens: event.usage.input,
+                            completion_tokens: event.usage.output,
+                            total_tokens:
+                                event.usage.input + event.usage.output,
+                            prompt_cache_hit_tokens: event.usage.cached,
                             prompt_cache_miss_tokens:
-                                msg.usage.input - msg.usage.cached,
+                                event.usage.input - event.usage.cached,
                             completion_tokens_details: {
-                                reasoning_tokens: msg.usage.thinking,
+                                reasoning_tokens: event.usage.thinking,
                             },
                         }
                         this.session.addUsageRecord({
-                            ...msg.usage,
-                            model: msg.usage.model ?? request.model,
+                            ...event.usage,
+                            model: event.usage.model ?? request.model,
                         })
                     }
                     break

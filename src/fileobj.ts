@@ -13,6 +13,7 @@ import type {
 } from './types/chat-file'
 import type { Config } from './config'
 import { printWarningMessage } from './tui'
+import type { StreamEvent } from './types/api-adapter'
 
 export type ChatRole =
     | 'UNKNOWN'
@@ -457,5 +458,49 @@ export class ChatFile {
         }
 
         return { messages, toolPaths: [...toolPaths] }
+    }
+
+    async onStreamEvent(event: StreamEvent): Promise<void> {
+        switch (event.type) {
+            case 'reasoning-start':
+                if (this.config.emitThinking) {
+                    await this.appendRoleLine('THINKING', {
+                        withPrefixNewLine: true,
+                        withSuffixNewLine: true,
+                    })
+                }
+                break
+            case 'reasoning-delta': {
+                if (this.config.emitThinking) {
+                    await this.appendContent(event.delta)
+                }
+                break
+            }
+
+            case 'content-start':
+                await this.appendRoleLine('ASSISTANT', {
+                    withPrefixNewLine: true,
+                    withSuffixNewLine: true,
+                })
+                break
+            case 'content-delta': {
+                await this.appendContent(event.delta)
+                break
+            }
+
+            case 'function-call-start':
+                await this.appendRoleLine('TOOL', {
+                    withPrefixNewLine: true,
+                    withSuffixNewLine: false,
+                })
+                break
+            case 'function-call-delta':
+                await this.appendToolCallChunkToToolBlock(event.delta)
+                break
+            case 'function-call-end': {
+                // proxy by session
+                break
+            }
+        }
     }
 }

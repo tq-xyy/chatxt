@@ -317,7 +317,7 @@ export class ProgressPanel {
     }
 
     /** 事件入口：只做 token 计数与 usage 记账，不在此猜测时序 */
-    public onEvent(event: StreamEvent): void {
+    public onStreamEvent(event: StreamEvent): void {
         if (!this.enabled) return
         switch (event.type) {
             case 'reasoning-delta':
