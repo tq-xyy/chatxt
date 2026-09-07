@@ -10,17 +10,23 @@ export interface ModelConfig {
 
 export interface Provider {
     name?: string
-    type: 'openai-compatible' | 'openai-responses' | 'anthropic'
+    type: string // bulit-in supports `openai-compatible`, `openai-responses` and `anthropic`
     endpoint: string
     apikey: string
     models: Record<string, true | ModelConfig>
 }
 
 export interface Config {
+    projectRoot: string
+
+    adapters: Record<string, string>
     providers: Provider[]
+
+    // model select
     defaultModel?: string
     fastModel?: string
 
+    // for cli specifying
     endpoint?: string
     endpointType?: Provider['type']
     model: string
@@ -154,6 +160,8 @@ export async function loadConfig(
     }
 
     const merged: Config = {
+        projectRoot: projectRoot || process.cwd(),
+        adapters: {},
         providers: [],
         ...fileConfig,
         ...cliConfig,

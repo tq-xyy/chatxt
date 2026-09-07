@@ -22,7 +22,7 @@ import type {
     FunctionCallMessage,
     Message,
 } from './types/chat-file'
-import type { APIAdapter, StreamEvent } from './types/api-adapter'
+import type { StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
 import { computeTokenCostCNY } from './common/pricing'
 
@@ -93,7 +93,6 @@ export class ChatSession {
     public file: ChatFile
     public toolRunner: ToolRunner
     public panel: ProgressPanel
-    public api: APIAdapter
 
     private sumUsages: NormalizedUsage[]
     private sumToolCall = 0
@@ -120,9 +119,6 @@ export class ChatSession {
 
         this.sumUsages = []
         this.toolCallDeltaBuffer = []
-
-        const gateway = getModelGateway(this.config, this.config.model)
-        this.api = createAPIAdapter(gateway.endpointType)
     }
 
     async loop(): Promise<void> {
@@ -151,6 +147,11 @@ export class ChatSession {
         try {
             const gateway = getModelGateway(this.config, this.config.model)
 
+            const api = await createAPIAdapter(
+                gateway.endpointType,
+                this.config
+            )
+
             const { messages, toolPaths } = await this.file.buildPrompt()
 
             const lastMessage = messages.at(-1)
@@ -174,7 +175,7 @@ export class ChatSession {
                 try {
                     // fetch 内 await 消耗 TTFB，必须在此记账才能捕获网络等待
                     this.panel.onRequestStart()
-                    const resp = await this.api.buildRequest(
+                    const resp = await api.buildRequest(
                         this.config,
                         gateway,
                         this.messages,
@@ -185,12 +186,9 @@ export class ChatSession {
                     this.messages.push({ role: 'assistant', content: '' })
 
                     for await (const message of parseSSEStream(resp)) {
-                        await this.api.handleChunk(
-                            message,
-                            this.onEmit.bind(this)
-                        )
+                        await api.handleChunk(message, this.onEmit.bind(this))
                     }
-                    await this.api.handleStreamEnd(this.onEmit.bind(this))
+                    await api.handleStreamEnd(this.onEmit.bind(this))
                 } catch (err) {
                     this.panel.clear()
                     retryTimes += 1

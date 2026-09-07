@@ -16,20 +16,23 @@ Chatxt is a command-line AI chat tool where the conversation itself is the file.
 ## Requirements
 
 - Node.js ≥ 22
-- pnpm for building
+- pnpm for package management
 
 ## Installation
 
 ```bash
 pnpm install
-pnpm build
 ```
 
-This produces `dist/cli.js` (a single bundled file). You can then use it via `node dist/cli.js` or link the `chatxt` bin:
+## Run from source (development)
+
+Use `tsx` to run the TypeScript entry directly (no build step needed):
 
 ```bash
-pnpm link   # optional: exposes the `chatxt` command globally
+pnpm exec tsx ./src/cli.ts my-chat.chat.txt
 ```
+
+The CLI options are identical to the built `dist/cli.js` (e.g. `node dist/cli.js` if you bundle locally).
 
 ## Quick Start
 
@@ -190,14 +193,14 @@ See [docs/tool_guide_zh.md](docs/tool_guide_zh.md) for the full guide.
 ## Development
 
 ```bash
-pnpm build       # bundle dist/cli.js with esbuild
+pnpm exec tsx ./src/cli.ts <file>   # run from source
 pnpm typecheck   # tsc --noEmit
 pnpm lint        # eslint --fix && prettier -w
 ```
 
 ## Documentation
 
-- [docs/architecture_zh.md](docs/architecture_zh.md) — architecture overview (Chinese)
+- [docs/custom_adapter.md](docs/custom_adapter.md) — custom adapter authoring guide (Chinese)
 - [docs/tool_guide_zh.md](docs/tool_guide_zh.md) — tool authoring guide (Chinese)
 
 ## License

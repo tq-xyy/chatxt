@@ -1,10 +1,16 @@
-import type { Provider } from '../config'
+import { pathToFileURL } from 'url'
+import { join } from 'path'
+
+import type { Config, Provider } from '../config'
 import type { APIAdapter } from '../types/api-adapter'
 import { OpenAICompatibleAPIAdapter } from './openai-compatible'
 import { AnthropicAPIAdapter } from './anthropic'
 import { OpenAIResponsesAPIAdapter } from './openai-responses'
 
-export function createAPIAdapter(type: Provider['type']): APIAdapter {
+export async function createAPIAdapter(
+    type: Provider['type'],
+    config: Config
+): Promise<APIAdapter> {
     switch (type) {
         case 'openai-compatible':
             return new OpenAICompatibleAPIAdapter()
@@ -13,4 +19,37 @@ export function createAPIAdapter(type: Provider['type']): APIAdapter {
         case 'openai-responses':
             return new OpenAIResponsesAPIAdapter()
     }
+
+    if (config.adapters[type]) {
+        const imported: unknown = await import(
+            pathToFileURL(
+                join(config.projectRoot, '.chatxtrc', config.adapters[type])
+            ).href
+        )
+
+        const CustomAdapter = (
+            imported &&
+            typeof imported === 'object' &&
+            'default' in imported &&
+            imported.default
+                ? imported.default
+                : imported
+        ) as new () => APIAdapter
+
+        if (
+            !CustomAdapter ||
+            typeof CustomAdapter.prototype.buildRequest !== 'function' ||
+            typeof CustomAdapter.prototype.handleChunk !== 'function' ||
+            typeof CustomAdapter.prototype.handleStreamEnd !== 'function'
+        ) {
+            throw new Error(
+                `invaild adapter ${type} from ${config.adapters[type]} ` +
+                    '(not implemented interfaces completely)'
+            )
+        }
+        return new CustomAdapter()
+    }
+    throw new Error(
+        `unknown adapter \`${type}\`, check your \`adapters\` field in your config.`
+    )
 }

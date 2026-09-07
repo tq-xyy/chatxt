@@ -325,7 +325,10 @@ export class ToolRunner {
 
         const apiGateway = getModelGateway(this.session.config, request.model)
 
-        const api: APIAdapter = createAPIAdapter(apiGateway.endpointType)
+        const api: APIAdapter = await createAPIAdapter(
+            apiGateway.endpointType,
+            this.session.config
+        )
 
         const messages: Message[] = []
         for (const m of request.messages) {

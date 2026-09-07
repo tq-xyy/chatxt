@@ -16,20 +16,23 @@ Chatxt 是一个命令行 AI 聊天工具：你在 `.chat.txt` 纯文本文件�
 ## 环境要求
 
 - Node.js ≥ 22
-- 构建使用 pnpm
+- 包管理使用 pnpm
 
 ## 安装
 
 ```bash
 pnpm install
-pnpm build
 ```
 
-构建产物为单文件 `dist/cli.js`。可通过 `node dist/cli.js` 使用，或链接全局命令：
+## 从源码运行（开发）
+
+使用 `tsx` 直接运行 TypeScript 入口（无需预先构建）：
 
 ```bash
-pnpm link   # 可选：注册全局 chatxt 命令
+pnpm exec tsx ./src/cli.ts my-chat.chat.txt
 ```
+
+与构建产物 `dist/cli.js`（如本地打包后可用 `node dist/cli.js` 运行）的 CLI 用法一致。
 
 ## 快速开始
 
@@ -190,14 +193,14 @@ chatxt.runtime.exposeTool([
 ## 开发
 
 ```bash
-pnpm build       # esbuild 打包 dist/cli.js
-pnpm typecheck   # tsc --noEmit 类型检查
-pnpm lint        # eslint --fix && prettier -w
+pnpm exec tsx ./src/cli.ts <file>   # 从源码运行
+pnpm typecheck       # tsc --noEmit 类型检查
+pnpm lint            # eslint --fix && prettier -w
 ```
 
 ## 文档
 
-- [docs/architecture_zh.md](docs/architecture_zh.md) —— 架构总览
+- [docs/custom_adapter.md](docs/custom_adapter.md) —— 自定义适配器编写指南
 - [docs/tool_guide_zh.md](docs/tool_guide_zh.md) —— 工具编写指南
 
 ## 许可证
