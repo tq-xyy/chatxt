@@ -85,6 +85,8 @@ const context: {
     chatFilePath: string // 当前 .chat.txt 文件的绝对路径
     chatFileDirname: string // 聊天文件所在目录的绝对路径
     chatxtVersion: string // chatxt 版本号
+    generalModel: string // 通用模型, 即 chatxt 当前模型
+    fastModel: string // 快速模型，由用户配置，缺省时为当前模型
 }
 ```
 

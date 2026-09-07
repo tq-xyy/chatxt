@@ -19,6 +19,7 @@ export interface Provider {
 export interface Config {
     providers: Provider[]
     defaultModel?: string
+    fastModel?: string
 
     endpoint?: string
     endpointType?: Provider['type']

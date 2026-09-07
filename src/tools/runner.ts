@@ -72,19 +72,22 @@ export class ToolRunner {
         const absPath = path.resolve(filePath)
         if (this.processes.has(absPath)) return
 
+        const toolContext: ChatxtToolAPI['context'] = {
+            toolPath: absPath,
+            chatFilePath: this.session.file.chatFilePath,
+            chatFileDirname: path.dirname(this.session.file.chatFilePath),
+            chatxtVersion,
+            fastModel:
+                this.session.config.fastModel || this.session.config.model,
+            generalModel: this.session.config.model,
+        }
+
         const child = fork(absPath, [], {
             execArgv: [...process.execArgv, '--import', this.runtimePath],
             stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
             env: {
                 ...process.env,
-                CHATXT_TOOL_CONTEXT: JSON.stringify({
-                    toolPath: absPath,
-                    chatFilePath: this.session.file.chatFilePath,
-                    chatFileDirname: path.dirname(
-                        this.session.file.chatFilePath
-                    ),
-                    chatxtVersion,
-                } as ChatxtToolAPI['context']),
+                CHATXT_TOOL_CONTEXT: JSON.stringify(toolContext),
             },
         })
 

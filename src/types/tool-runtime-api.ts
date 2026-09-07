@@ -12,6 +12,8 @@ export type ChatxtToolAPI = {
         chatFilePath: string
         chatFileDirname: string
         chatxtVersion: string
+        generalModel: string
+        fastModel: string
     }
     runtime: {
         exposeTool(
