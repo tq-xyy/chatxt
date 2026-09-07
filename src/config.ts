@@ -21,6 +21,7 @@ export interface Config {
     defaultModel?: string
 
     endpoint?: string
+    endpointType?: Provider['type']
     model: string
     apikey?: string
 
@@ -43,10 +44,12 @@ export interface Config {
 }
 
 export interface ModelGateway {
+    /** Show and unique name */
     id: string
     providerName: string
     endpoint: string
     endpointType: Provider['type']
+    /** gateway name */
     model: string
     apikey: string
     pricing?: Pricing | Pricing[]
@@ -60,7 +63,7 @@ export function getModelGateway(config: Config, model: string): ModelGateway {
             endpoint: config.endpoint,
             apikey: config.apikey,
             model,
-            endpointType: 'openai-compatible',
+            endpointType: config.endpointType || 'openai-compatible',
         }
     }
 

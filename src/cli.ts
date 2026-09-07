@@ -1,6 +1,6 @@
 import { Command } from 'commander'
 import { ChatSession } from './session'
-import { initConfig, loadConfig } from './config'
+import { initConfig, loadConfig, type Provider } from './config'
 import { chatxtVersion } from './utils/meta'
 
 const program = new Command()
@@ -13,6 +13,10 @@ program
     .option('-m, --model <model>', 'model to be used to generate')
     .option('-k, --api-key <model>', 'api key from your model provider')
     .option('--endpoint <model>', 'the endpoint of model provider')
+    .option(
+        '--endpoint-type <type>',
+        'the endpoint type of model provider, bulit-in supports `openai-compatible`, `openai-responses` and `anthropic`'
+    )
     .option(
         '--no-emit-thinking',
         'disable emitting reasoning chain in .chat.txt (force if thinking unavailable)'
@@ -37,6 +41,7 @@ program
                 model,
                 apiKey: apikey,
                 endpoint,
+                endpointType,
                 emitThinking,
                 excludeHistoryToolCall,
                 emitToConsole,
@@ -45,6 +50,7 @@ program
                 model?: string
                 apiKey?: string
                 endpoint?: string
+                endpointType?: Provider['type']
                 emitThinking: boolean
                 excludeHistoryToolCall: boolean
                 emitToConsole: boolean
@@ -55,6 +61,7 @@ program
                 model,
                 apikey,
                 endpoint,
+                endpointType,
                 emitThinking,
                 excludeHistoryToolCall,
                 emitToConsole,
