@@ -99,25 +99,15 @@ function formatUsageAndCostForSingleModel(
 export function printFinalStatus({
     status,
     usages,
-    startTime,
     config,
     toolCallCount,
-    totalCost,
-    timing,
-    requestCount,
+    panel,
 }: {
     status: 'ok' | 'error' | 'ctrl-c'
     usages: NormalizedUsage[]
-    startTime: number
     config: Config
     toolCallCount: number
-    totalCost: number
-    timing?: {
-        netMs: number
-        outMs: number
-        toolMs: number
-    }
-    requestCount?: number
+    panel: ProgressPanel
 }): void {
     let output: string = ''
 
@@ -152,16 +142,26 @@ export function printFinalStatus({
         output += '\n' + secondLine
     }
 
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
+    const stats = panel.summary
+    const timeParts = [
+        chalk.white('Elapsed: ') +
+            chalk.green(`${(stats.elapsedMs / 1000).toFixed(2)}s`),
+    ]
 
-    const timeParts = [chalk.white('Elapsed: ') + chalk.green(`${elapsed}s`)]
+    timeParts.push(
+        chalk.gray(
+            `Net ${(stats.netMs / 1000).toFixed(1)}s` +
+                ` Output ${(stats.outMs / 1000).toFixed(1)}s` +
+                ` Tool ${(stats.toolMs / 1000).toFixed(1)}s`
+        )
+    )
 
-    if (timing) {
+    // 真值 tps：全部 usage 真值 output / 真实输出墙钟时间
+    const totalOutput = usages.reduce((sum, u) => sum + u.output, 0)
+    if (stats.outMs > 0 && totalOutput > 0) {
         timeParts.push(
-            chalk.gray(
-                `Net ${(timing.netMs / 1000).toFixed(1)}s` +
-                    ` Output ${(timing.outMs / 1000).toFixed(1)}s` +
-                    ` Tool ${(timing.toolMs / 1000).toFixed(1)}s`
+            chalk.cyan(
+                `${(totalOutput / (stats.outMs / 1000)).toFixed(1)} t/s`
             )
         )
     }
@@ -169,9 +169,9 @@ export function printFinalStatus({
     output += '\n' + timeParts.join('  ·  ') + '\n'
 
     const countParts: string[] = []
-    if (requestCount !== undefined && requestCount > 0) {
+    if (stats.roundCount > 0) {
         countParts.push(
-            chalk.white('Requests: ') + chalk.cyan(requestCount.toString())
+            chalk.white('Requests: ') + chalk.cyan(stats.roundCount.toString())
         )
     }
     if (toolCallCount > 0) {
@@ -179,9 +179,10 @@ export function printFinalStatus({
             chalk.white('Tool calls: ') + chalk.cyan(toolCallCount.toString())
         )
     }
-    if (totalCost > 0) {
+    if (stats.totalCost > 0) {
         countParts.push(
-            chalk.white('Total cost: ') + chalk.red(`¥${totalCost.toFixed(6)}`)
+            chalk.white('Total cost: ') +
+                chalk.red(`¥${stats.totalCost.toFixed(6)}`)
         )
     }
 
@@ -197,25 +198,36 @@ export function printFinalStatus({
 }
 
 export type Phase =
-    'network' | 'thinking' | 'output' | 'tool' | 'subagent' | 'done'
+    | 'network'
+    | 'responding'
+    | 'thinking'
+    | 'output'
+    | 'tool'
+    | 'subagent'
+    | 'done'
 
-const PHASE_TEXT: Record<Phase, string> = {
-    network: 'Requesting...',
-    thinking: 'Thinking...',
-    output: 'Generating Answer...',
-    tool: 'Call Function...',
-    subagent: 'Call Function | Sub Agent Generating...',
-    done: 'Done',
+const PHASE_STYLE: Record<
+    Phase,
+    {
+        text: string
+        color: (s: string) => string
+        acc: 'netMs' | 'outMs' | 'toolMs' | null
+    }
+> = {
+    network: { text: 'Requesting', color: chalk.blue, acc: 'netMs' },
+    responding: { text: 'Responding', color: chalk.blue, acc: 'netMs' },
+    thinking: { text: 'Thinking', color: chalk.magenta, acc: 'outMs' },
+    output: { text: 'Generating', color: chalk.green, acc: 'outMs' },
+    tool: { text: 'Running tool', color: chalk.cyan, acc: 'toolMs' },
+    subagent: { text: 'Running subagent', color: chalk.yellow, acc: 'toolMs' },
+    done: { text: 'Done', color: chalk.white, acc: null },
 }
 
 /** 阶段前缀定宽：按最长文案对齐，避免活动行抖动 */
-const PHASE_WIDTH = Math.max(...Object.values(PHASE_TEXT).map(s => s.length))
+const PHASE_WIDTH = Math.max(
+    ...Object.values(PHASE_STYLE).map(s => s.text.length)
+)
 
-/**
- * 实时进度面板：只做阶段计时与渲染，时序由 session 的 setPhase 插桩驱动。
- * 活动行（\r + \x1b[2K 原子重绘）是唯一被擦除重绘的行；
- * 固化行以换行追加后永不擦除，自然上卷。
- */
 export class ProgressPanel {
     readonly enabled: boolean
 
@@ -271,7 +283,6 @@ export class ProgressPanel {
         netMs: number
         outMs: number
         toolMs: number
-        outputTokens: number
         roundCount: number
         elapsedMs: number
         totalCost: number
@@ -280,7 +291,6 @@ export class ProgressPanel {
             netMs: this.netMs,
             outMs: this.outMs,
             toolMs: this.toolMs,
-            outputTokens: this.outputCount,
             roundCount: this.roundIndex,
             elapsedMs: performance.now() - this.startTime,
             totalCost: this.totalCostAccum,
@@ -316,10 +326,22 @@ export class ProgressPanel {
         this.setPhase('network')
     }
 
-    /** 事件入口：只做 token 计数与 usage 记账，不在此猜测时序 */
+    /** 事件入口：token 计数、usage 记账，并按事件类型自行推导阶段（纯展示语义） */
     public onStreamEvent(event: StreamEvent): void {
         if (!this.enabled) return
         switch (event.type) {
+            case 'response-start':
+                // 首个业务 chunk 到达：TTFB 结束，切到 responding（netMs 继续累计）
+                this.setPhase('responding')
+                break
+            case 'reasoning-start':
+                this.setPhase('thinking')
+                break
+            case 'content-start':
+            case 'function-call-start':
+                // 生成函数调用参数仍属输出阶段
+                this.setPhase('output')
+                break
             case 'reasoning-delta':
                 this.outputCount += estimateTokens(event.delta)
                 break
@@ -332,8 +354,7 @@ export class ProgressPanel {
                 }
                 break
             case 'response-end':
-                this.settlePhase(performance.now())
-                this.currentPhase = 'done'
+                this.setPhase('done')
                 if (event.usage) {
                     this.commitRound(event.usage)
                 }
@@ -344,27 +365,16 @@ export class ProgressPanel {
         this.scheduleDraw()
     }
 
-    /** 结算当前阶段耗时（thinking/output 同时累计进 roundOutMs 供固化行用） */
+    /** 结算当前阶段耗时：累加进 PHASE_STYLE.acc 指向的累计器 */
     private settlePhase(now: number): void {
-        if (!this.phaseStart) return
+        if (this.phaseStart === 0) return
         const elapsed = now - this.phaseStart
         this.phaseStart = 0
-        switch (this.currentPhase) {
-            case 'network':
-                this.netMs += elapsed
-                break
-            case 'thinking':
-            case 'output':
-                this.outMs += elapsed
-                this.roundOutMs += elapsed
-                break
-            case 'tool':
-            case 'subagent':
-                this.toolMs += elapsed
-                break
-            case 'done':
-                break
-        }
+        const acc = PHASE_STYLE[this.currentPhase].acc
+        if (acc === null) return
+        // 输出系阶段同时计入本轮固化行用的 roundOutMs
+        if (acc === 'outMs') this.roundOutMs += elapsed
+        this[acc] += elapsed
     }
 
     /** 累计成本，verbose 时追加固化行 */
@@ -382,7 +392,7 @@ export class ProgressPanel {
         }
     }
 
-    /** 固化行：apt 风格，只含 ASCII 分隔符 */
+    /** 固化行 */
     private emitCommittedLine(usage: NormalizedUsage, cost: number): void {
         const inS = this.formatCount(usage.input)
         const outS = this.formatCount(usage.output)
@@ -441,47 +451,41 @@ export class ProgressPanel {
         }
     }
 
-    /** 绘制活动行：`\r` + `\x1b[2K` 原子重绘 */
+    /** 绘制活动行 */
     private draw(): void {
         this.lastDrawTime = Date.now()
         if (this.roundIndex === 0) return
 
         const now = performance.now()
         const totalSec = ((now - this.startTime) / 1000).toFixed(1)
-        const phaseText = PHASE_TEXT[this.currentPhase].padEnd(PHASE_WIDTH)
+        const phaseText =
+            PHASE_STYLE[this.currentPhase].text.padEnd(PHASE_WIDTH)
+
+        // tps 为估算值（分子是估算 token），仅作活性参考。
+        // 分母用本阶段已流逝时间（phaseStart 尚未结算，outMs 是历史轮累计）
+        const phaseElapsedMs = this.phaseStart > 0 ? now - this.phaseStart : 0
+        const tps =
+            (this.currentPhase === 'thinking' ||
+                this.currentPhase === 'output') &&
+            phaseElapsedMs > 200
+                ? ` · ${((this.outputCount / phaseElapsedMs) * 1000).toFixed(0)} t/s`
+                : ''
 
         // 只显示阶段 + 轮次 + 总秒数，保证 64 列内不触发终端换行
         const line =
-            this.phaseColor(phaseText) +
+            PHASE_STYLE[this.currentPhase].color(phaseText) +
             (this.currentPhase === 'tool' && this.pendingToolNames.length > 0
                 ? this.pendingToolNames.length <= 2
                     ? ` [${this.pendingToolNames.join(', ')}]`
                     : ` [${this.pendingToolNames.slice(0, 2).join(', ')}, ...]`
                 : '') +
-            ` ${this.roundIndex} · ${totalSec}s`
+            ` ${this.roundIndex}${tps} · ${totalSec}s`
 
         process.stdout.write('\r\x1b[2K' + line)
     }
 
     private eraseLine(): void {
         process.stdout.write('\r\x1b[2K')
-    }
-
-    private phaseColor(text: string): string {
-        switch (this.currentPhase) {
-            case 'network':
-                return chalk.blue(text)
-            case 'thinking':
-                return chalk.magenta(text)
-            case 'output':
-                return chalk.green(text)
-            case 'tool':
-                return chalk.cyan(text)
-            case 'subagent':
-                return chalk.yellow(text)
-            default:
-                return chalk.white(text)
-        }
     }
 
     /** 千位紧凑格式：1.2K / 23.1K / 1.2M */

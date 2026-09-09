@@ -24,7 +24,6 @@ import type {
 } from './types/chat-file'
 import type { StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
-import { computeTokenCostCNY } from './common/pricing'
 
 function processFinishReason(finishReason: FinishReason): void {
     switch (finishReason) {
@@ -74,20 +73,6 @@ function mergeFunctionCallDeltas(
         .map(([, call]) => call)
 }
 
-function computeTotalCost(usages: NormalizedUsage[], config: Config) {
-    let total: number = 0
-    for (const usage of usages) {
-        const pricing = usage.model
-            ? getModelGateway(config, usage.model).pricing
-            : usage.model
-        const cost = computeTokenCostCNY(usage, pricing)
-        if (!isNaN(cost)) {
-            total += cost
-        }
-    }
-    return total
-}
-
 export class ChatSession {
     public config: Config
     public file: ChatFile
@@ -96,7 +81,6 @@ export class ChatSession {
 
     private sumUsages: NormalizedUsage[]
     private sumToolCall = 0
-    private startTime: number
 
     // state
     private shouldStop: boolean = false
@@ -109,7 +93,6 @@ export class ChatSession {
     ) {
         this.config = config
         this.file = new ChatFile(chatFilePath, config)
-        this.startTime = performance.now()
         this.panel = new ProgressPanel({
             config,
             // 面板独占 stdout，写文件模式下才可用；emitToConsole 静默
@@ -214,33 +197,19 @@ export class ChatSession {
         await this.file.onStreamEvent(event)
 
         switch (event.type) {
-            case 'reasoning-start':
-                this.panel.setPhase('thinking')
-                break
             case 'reasoning-delta': {
                 const assistant = this.getPendingAssistant()
                 assistant.reasoning_content =
                     (assistant.reasoning_content ?? '') + event.delta
                 break
             }
-            case 'reasoning-end':
-                break
 
-            case 'content-start':
-                this.panel.setPhase('output')
-                break
             case 'content-delta': {
                 const assistant = this.getPendingAssistant()
                 assistant.content = (assistant.content ?? '') + event.delta
                 break
             }
-            case 'content-end':
-                break
 
-            case 'function-call-start':
-                // 生成函数调用参数仍属输出阶段
-                this.panel.setPhase('output')
-                break
             case 'function-call-delta':
                 this.toolCallDeltaBuffer.push(event.delta)
                 break
@@ -308,17 +277,10 @@ export class ChatSession {
 
         printFinalStatus({
             status,
-            startTime: this.startTime,
             usages: this.sumUsages,
             toolCallCount: this.sumToolCall,
             config: this.config,
-            totalCost: computeTotalCost(this.sumUsages, this.config),
-            requestCount: this.panel.summary.roundCount,
-            timing: {
-                netMs: this.panel.summary.netMs,
-                outMs: this.panel.summary.outMs,
-                toolMs: this.panel.summary.toolMs,
-            },
+            panel: this.panel,
         })
 
         await this.toolRunner.close()
