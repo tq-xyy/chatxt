@@ -460,7 +460,7 @@ async function str_replace_editor({
 
 const runShellDesc =
     '在 bash 中运行命令。状态跨命令调用持久（每次对话重置）。请避免产生大量输出的命令，长命令请放后台（如 sleep 10 &）。' +
-    `文件 ${path.basename(chatxt.context.chatFilePath)} 不是多余文件，改动须用户确认。` +
+    `文件 ${path.basename(chatxt.context.chatFilePath)} 不是多余文件，使用或改动须用户二次确认。` +
     (isWin
         ? '\n当前环境为 Windows，已自动启用 BusyBox for Windows 的 bash Applet，非 PowerShell' +
           `\n支持大多数常见命令 (你可以假设命令存在，出错后再验证兼容性), 也可以直接运行任意 Windows 二进制` +
