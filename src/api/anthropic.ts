@@ -19,7 +19,6 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-
 const ANTHROPIC_IMAGE_MEDIA_TYPES = new Set<string>([
     'image/jpeg',
     'image/png',

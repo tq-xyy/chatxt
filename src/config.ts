@@ -147,8 +147,11 @@ export async function loadConfig(
 
     // exclude undefined items from cli settings
     cliConfig = cliConfig || {}
+
     cliConfig = Object.fromEntries(
-        Object.entries(cliConfig).filter(([k, v]) => k && v)
+        Object.entries(cliConfig).filter(
+            ([k, v]) => k && v !== undefined && v !== null
+        )
     )
 
     const model = cliConfig.model || fileConfig.defaultModel

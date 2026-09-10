@@ -13,7 +13,6 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-
 /** Responses 的 detail 取值比 Chat Completions 少一个 `original` */
 const RESPONSES_IMAGE_DETAILS = new Set<string>(['auto', 'low', 'high'])
 
@@ -93,7 +92,6 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
 
     return items
 }
-
 
 export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEvent> {
     private outputFlag: OutputFlag = 'UNKNOWN'
