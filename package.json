@@ -1,6 +1,6 @@
 {
     "name": "chatxt",
-    "version": "1.6.0",
+    "version": "1.6.1",
     "type": "module",
     "description": "Chatxt - AI conversations recorded as .chat.txt files",
     "scripts": {
@@ -26,6 +26,6 @@
         "prettier": "^3.9.6",
         "tsx": "^4.23.13",
         "typescript": "^6.0.3",
-        "typescript-eslint": "^8.69.0"
+        "typescript-eslint": "^8.70.0"
     }
 }
