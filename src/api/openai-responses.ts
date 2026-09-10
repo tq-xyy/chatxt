@@ -1,8 +1,9 @@
 import type { Config, ModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type { Message, ToolDef } from '../types/chat-file'
+import type { Message, ToolDef, UserContentBlock } from '../types/chat-file'
 import type { SSEMessage } from '../utils/sse-stream'
 import type {
+    ResponsesInputContent,
     ResponsesInputItem,
     ResponsesRequest,
     ResponsesStreamEvent,
@@ -12,7 +13,34 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-// ======================== 请求转换 ========================
+
+/** Responses 的 detail 取值比 Chat Completions 少一个 `original` */
+const RESPONSES_IMAGE_DETAILS = new Set<string>(['auto', 'low', 'high'])
+
+/**
+ * Responses 的 content part 与 Chat Completions 同义不同名：
+ * `text` → `input_text`，`image_url` → `input_image`（url 直接放字符串）。
+ */
+function toResponsesContent(
+    content: string | UserContentBlock[]
+): string | ResponsesInputContent[] {
+    if (typeof content === 'string') {
+        return content
+    }
+    return content.map<ResponsesInputContent>(block => {
+        if (block.type === 'text') {
+            return { type: 'input_text', text: block.text }
+        }
+        const { url, detail } = block.image_url
+        return {
+            type: 'input_image',
+            image_url: url,
+            ...(detail && RESPONSES_IMAGE_DETAILS.has(detail)
+                ? { detail }
+                : {}),
+        }
+    })
+}
 
 /** 平铺消息 → Responses input items；system 抽到顶层 instructions */
 function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
@@ -22,7 +50,11 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
         if (msg.role === 'system') continue
 
         if (msg.role === 'user') {
-            items.push({ type: 'message', role: 'user', content: msg.content })
+            items.push({
+                type: 'message',
+                role: 'user',
+                content: toResponsesContent(msg.content),
+            })
         } else if (msg.role === 'assistant') {
             // 思考模式（如 DeepSeek）要求把上轮 reasoning_text 回传，
             // 否则报 400: The `reasoning_text` in the thinking mode
@@ -62,7 +94,6 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
     return items
 }
 
-// ======================== Adapter ========================
 
 export class OpenAIResponsesAPIAdapter implements APIAdapter<ResponsesStreamEvent> {
     private outputFlag: OutputFlag = 'UNKNOWN'

@@ -9,8 +9,21 @@ export interface AnthropicToolDefinition {
     input_schema: Record<string, unknown>
 }
 
+// Anthropic 只接受这四种图片媒体类型
+export type AnthropicImageMediaType =
+    'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
 export type AnthropicContentBlock =
     | { type: 'text'; text: string }
+    | {
+          type: 'image'
+          source: {
+              type: 'base64'
+              media_type: AnthropicImageMediaType
+              /** 不含 `data:<mime>;base64,` 前缀的裸 base64 */
+              data: string
+          }
+      }
     | {
           type: 'tool_use'
           id: string

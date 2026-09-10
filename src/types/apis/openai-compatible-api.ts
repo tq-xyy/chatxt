@@ -6,8 +6,18 @@ export interface OpenAICompatibleSystemMessage {
     name?: string
 }
 
+export type OpenAICompatibleContentPart =
+    | { type: 'text'; text: string }
+    | {
+          type: 'image_url'
+          image_url: {
+              url: string
+              detail?: string
+          }
+      }
+
 export interface OpenAICompatibleUserMessage {
-    content: string
+    content: string | OpenAICompatibleContentPart[]
     role: 'user'
     name?: string
 }

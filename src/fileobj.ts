@@ -1,5 +1,5 @@
 import { readFile, appendFile } from 'fs/promises'
-import { isFile, isPlainUTF8Text } from './utils/file-utils'
+import { imgToDataUri, isFile, isPlainUTF8Text } from './utils/file-utils'
 import * as path from 'path'
 
 import type {
@@ -10,6 +10,7 @@ import type {
     FunctionCallResultMessage,
     SystemMessage,
     UserMessage,
+    UserContentBlock,
 } from './types/chat-file'
 import type { Config } from './config'
 import { printWarningMessage } from './tui'
@@ -206,9 +207,52 @@ export class ChatFile {
         block: ParsedBlock,
         parentInclude?: string[]
     ): Promise<[SystemMessage | UserMessage, Set<string>]> {
-        let content = ''
-        let suffixContent = ''
+        // 实际上供应商不一定不支持 file, 这里后面会转译掉
+        type PlainTextBlock = {
+            type: 'plain_text'
+            file_content: string // 非标准块
+            filename: string
+        }
+        type TextBlock = { type: 'text'; text: string }
+
+        // 文本按出现顺序累积成一段；图片单独收集。文本与图片之间的相对顺序
+        // 在下面的拼装阶段本来就会丢失，所以分开存更直白。
+        const content: (TextBlock | PlainTextBlock)[] = []
+        const images: UserContentBlock[] = []
         let toolSet = new Set<string>()
+
+        const isTextBlock = (p: TextBlock | PlainTextBlock): p is TextBlock =>
+            p.type === 'text'
+        const isPlainTextBlock = (
+            p: TextBlock | PlainTextBlock
+        ): p is PlainTextBlock => p.type === 'plain_text'
+
+        const addToLastText: (text: string) => void = text => {
+            const lastText = content.findLast(block => block.type === 'text')
+
+            if (lastText?.type == 'text') {
+                lastText.text += text
+            } else {
+                content.push({ type: 'text', text })
+            }
+        }
+
+        /** @include 的结果可能纯文本，也可能是多模态数组 */
+        const appendContent: (
+            value: string | UserContentBlock[]
+        ) => void = value => {
+            if (typeof value === 'string') {
+                addToLastText(value)
+                return
+            }
+            for (const part of value) {
+                if (part.type === 'text') {
+                    addToLastText(part.text)
+                } else {
+                    images.push(part)
+                }
+            }
+        }
 
         for (const comp of block.components) {
             const rootDir = parentInclude
@@ -216,7 +260,7 @@ export class ChatFile {
                 : path.dirname(this.chatFilePath)
 
             if (typeof comp === 'string') {
-                content += comp
+                content.push({ type: 'text', text: comp })
                 continue
             }
 
@@ -243,27 +287,45 @@ export class ChatFile {
                 }
 
                 if (!this.referredFiles.has(filePathAbs)) {
-                    if (!(await isPlainUTF8Text(filePath))) {
-                        printWarningMessage(
-                            `External file must be plain text encoded by UTF-8:` +
-                                ` ${filePathRel}`
-                        )
-                    }
-                    try {
-                        const text = await readFile(filePath, 'utf-8')
+                    if (await isPlainUTF8Text(filePath)) {
+                        try {
+                            const text = await readFile(filePath, 'utf-8')
 
-                        suffixContent += `====== QUOTE BEGIN =====\n`
-                        suffixContent += `File (${comp.arg}):\n${text}\n`
-                        suffixContent += `====== QUOTE END =====\n`
-                        this.referredFiles.add(filePathAbs)
-                    } catch (err) {
-                        printWarningMessage(
-                            `External file open failed: ${filePathRel} (${(err as Error).toString()})`
-                        )
+                            content.push({
+                                type: 'plain_text',
+                                file_content: text,
+                                filename: comp.arg,
+                            })
+                        } catch (err) {
+                            printWarningMessage(
+                                `External file open failed: ${filePathRel} (${(err as Error).toString()})`
+                            )
+                        }
+                    } else {
+                        // 不是 UTF-8 文本才当作图片试。两者互斥，否则纯文本文件
+                        // 会被再试一次图片并误报「既不是文本也不是图片」。
+                        // 注意用 filePath 而不是 comp.arg：后者相对 chat 文件所在
+                        // 目录，直接喂给 readFile 会按 cwd 解析而找不到文件。
+                        const dataUri = await imgToDataUri(filePath)
+
+                        if (!dataUri) {
+                            printWarningMessage(
+                                `External file must be plain text encoded by UTF-8 or a vaild image:` +
+                                    ` ${filePathRel}`
+                            )
+                            continue
+                        }
+
+                        images.push({
+                            type: 'image_url',
+                            image_url: { url: dataUri },
+                        })
                     }
+
+                    this.referredFiles.add(filePathAbs)
                 }
 
-                content += `${comp.arg}`
+                addToLastText(`<reference file="${comp.arg}">`)
             } else if (comp.type === 'include') {
                 if (!argIsFile) {
                     printWarningMessage(
@@ -297,7 +359,8 @@ export class ChatFile {
                             [...(parentInclude || []), path.resolve(filePath)]
                         )
 
-                    content += `${includeMessages.content}\n`
+                    appendContent(includeMessages.content)
+                    addToLastText('\n')
                     toolSet = toolSet.union(includeToolSet)
                 } catch (err) {
                     printWarningMessage(
@@ -305,18 +368,63 @@ export class ChatFile {
                     )
                 }
             } else {
-                content += `@${comp.type}(${comp.arg})`
+                addToLastText(`@${comp.type}(${comp.arg})`)
+            }
+        }
+
+        // 恢复「正文修剪后 + 空行 + 引文修剪后」的旧有拼接语义
+        const textBody = content
+            .filter(isTextBlock)
+            .map(p => p.text)
+            .join('')
+        const quoteBody = content
+            .filter(isPlainTextBlock)
+            .map(p => {
+                let suffixContent = `====== QUOTE BEGIN =====\n`
+                suffixContent += `File (${p.filename}):\n${p.file_content}\n`
+                suffixContent += `====== QUOTE END =====\n`
+                return suffixContent
+            })
+            .join('')
+
+        const plainContent =
+            quoteBody.length > 0
+                ? textBody.trimEnd() + '\n\n' + quoteBody.trimEnd()
+                : textBody.trimEnd()
+
+        // 只要出现图片就走多模态分支。注意这里是「存在」而非「全部是」——
+        // 图文混排（如「描述这张图 @file(a.png)」）才是最常见的用法。
+        if (images.length > 0) {
+            if (block.role == 'SYSTEM') {
+                printWarningMessage(
+                    'Invaild image in system message, image in system message will be ignored.'
+                )
+            } else {
+                return [
+                    {
+                        role: 'user',
+                        content: [
+                            ...(plainContent.length > 0
+                                ? [
+                                      {
+                                          type: 'text' as const,
+                                          text: plainContent,
+                                      },
+                                  ]
+                                : []),
+                            ...images,
+                        ],
+                    },
+
+                    toolSet,
+                ]
             }
         }
 
         return [
             {
                 role: block.role === 'SYSTEM' ? 'system' : 'user',
-                content:
-                    content.trimEnd() +
-                    (suffixContent.length > 0
-                        ? '\n\n' + suffixContent.trimEnd()
-                        : ''),
+                content: plainContent,
             },
             toolSet,
         ]

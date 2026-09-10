@@ -12,9 +12,13 @@ export interface SystemMessage {
     content: string
 }
 
+export type UserContentBlock =
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string; detail?: string } }
+
 export interface UserMessage {
     role: 'user'
-    content: string
+    content: string | UserContentBlock[]
 }
 
 export interface AssistantMessage {

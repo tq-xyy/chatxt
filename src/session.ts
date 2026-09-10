@@ -21,9 +21,21 @@ import type {
     FunctionCallDelta,
     FunctionCallMessage,
     Message,
+    UserContentBlock,
 } from './types/chat-file'
 import type { StreamEvent } from './types/api-adapter'
 import { createAPIAdapter } from './api'
+
+/**
+ * 空输入判定。user 内容可能是多模态数组，此时只要含有内容块
+ * （哪怕只有一张图、没有文字）就算有效输入。
+ */
+function isEmptyUserContent(content: string | UserContentBlock[]): boolean {
+    if (typeof content === 'string') {
+        return content.trimEnd().length < 1
+    }
+    return content.length < 1
+}
 
 function processFinishReason(finishReason: FinishReason): void {
     switch (finishReason) {
@@ -140,7 +152,7 @@ export class ChatSession {
             const lastMessage = messages.at(-1)
             if (
                 lastMessage?.role !== 'user' ||
-                (lastMessage.content.trimEnd().length || 0) < 1
+                isEmptyUserContent(lastMessage.content)
             ) {
                 printWarningMessage('No user input.')
                 this.panel.close()

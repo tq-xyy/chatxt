@@ -10,11 +10,19 @@ export interface ResponsesToolDefinition {
     strict?: boolean | null
 }
 
+export type ResponsesInputContent =
+    | { type: 'input_text'; text: string }
+    | {
+          type: 'input_image'
+          image_url: string
+          detail?: string // `auto` / `low` / `high`
+      }
+
 export type ResponsesInputItem =
     | {
           type: 'message'
           role: 'user' | 'assistant' | 'system'
-          content: string
+          content: string | ResponsesInputContent[]
       }
     | {
           type: 'function_call'

@@ -1,9 +1,15 @@
 import type { Config, ModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type { FinishReason, Message, ToolDef } from '../types/chat-file'
+import type {
+    FinishReason,
+    Message,
+    ToolDef,
+    UserContentBlock,
+} from '../types/chat-file'
 import type { SSEMessage } from '../utils/sse-stream'
 import type {
     AnthropicContentBlock,
+    AnthropicImageMediaType,
     AnthropicMessage,
     AnthropicRequest,
     AnthropicStreamEvent,
@@ -13,7 +19,52 @@ import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'
 
-// ======================== 请求转换 ========================
+
+const ANTHROPIC_IMAGE_MEDIA_TYPES = new Set<string>([
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+])
+
+const DATA_URI_REGEX = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i
+
+/**
+ * Anthropic 的 image block 与 OpenAI 不同：它不收 data URI，
+ * 必须把 `data:<mime>;base64,<data>` 拆成 media_type + 裸 base64。
+ */
+function toAnthropicImageBlock(url: string): AnthropicContentBlock {
+    const matched = DATA_URI_REGEX.exec(url)
+    const mediaType = matched?.[1]?.toLowerCase() ?? ''
+    if (!matched || !ANTHROPIC_IMAGE_MEDIA_TYPES.has(mediaType)) {
+        throw new Error(
+            `Anthropic 只接受内联图片（data:image/<jpeg|png|gif|webp>;base64,…），` +
+                `收到：${url.slice(0, 48)}…`
+        )
+    }
+    return {
+        type: 'image',
+        source: {
+            type: 'base64',
+            media_type: mediaType as AnthropicImageMediaType,
+            data: matched[2],
+        },
+    }
+}
+
+/** chatxt 的 user 内容 → Anthropic content（纯文本可直接原样传） */
+function toAnthropicContent(
+    content: string | UserContentBlock[]
+): string | AnthropicContentBlock[] {
+    if (typeof content === 'string') {
+        return content
+    }
+    return content.map<AnthropicContentBlock>(block =>
+        block.type === 'text'
+            ? { type: 'text', text: block.text }
+            : toAnthropicImageBlock(block.image_url.url)
+    )
+}
 
 /** 平铺消息 → Anthropic messages；tool_use 前无 assistant 时兜底创建 */
 function toAnthropicMessages(messages: Message[]): AnthropicMessage[] {
@@ -31,7 +82,10 @@ function toAnthropicMessages(messages: Message[]): AnthropicMessage[] {
 
         if (msg.role === 'user') {
             flushToolResults()
-            result.push({ role: 'user', content: msg.content })
+            result.push({
+                role: 'user',
+                content: toAnthropicContent(msg.content),
+            })
         } else if (msg.role === 'assistant') {
             const content: AnthropicContentBlock[] = []
             // thinking 模式（如 DeepSeek Anthropic 兼容端点）要求把上轮
