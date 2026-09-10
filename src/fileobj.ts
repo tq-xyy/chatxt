@@ -264,7 +264,9 @@ export class ChatFile {
                 continue
             }
 
-            const filePath = path.join(rootDir, comp.arg)
+            const filePath = path.isAbsolute(comp.arg)
+                ? comp.arg
+                : path.join(rootDir, comp.arg)
             const filePathRel = path.relative(process.cwd(), filePath)
             const filePathAbs = path.resolve(filePath)
 
