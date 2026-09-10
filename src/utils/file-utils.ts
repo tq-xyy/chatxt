@@ -56,7 +56,7 @@ export async function isPlainUTF8Text(filePath: string): Promise<boolean> {
         if (sample.length === 0) return true
 
         const decoder = new TextDecoder('utf-8', { fatal: true })
-        decoder.decode(sample)
+        decoder.decode(sample, { stream: true })
         return true
     } catch {
         // Decoding error (invalid UTF‑8) or file access error → not plain text.
