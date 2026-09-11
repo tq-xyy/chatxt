@@ -1,4 +1,5 @@
 import * as path from 'path'
+
 import { version } from '../../package.json'
 export { version as chatxtVersion }
 

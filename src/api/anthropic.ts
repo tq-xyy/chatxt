@@ -1,12 +1,6 @@
+import type { NormalizedUsage } from '../common/usage'
 import type { Config, ModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type {
-    FinishReason,
-    Message,
-    ToolDef,
-    UserContentBlock,
-} from '../types/chat-file'
-import type { SSEMessage } from '../utils/sse-stream'
 import type {
     AnthropicContentBlock,
     AnthropicImageMediaType,
@@ -14,7 +8,13 @@ import type {
     AnthropicRequest,
     AnthropicStreamEvent,
 } from '../types/apis/anthropic-api'
-import type { NormalizedUsage } from '../common/usage'
+import type {
+    FinishReason,
+    Message,
+    ToolDef,
+    UserContentBlock,
+} from '../types/chat-file'
+import type { SSEMessage } from '../utils/sse-stream'
 import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'

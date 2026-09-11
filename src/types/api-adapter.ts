@@ -1,13 +1,12 @@
+import type { NormalizedUsage } from '../common/usage'
 import type { Config, ModelGateway } from '../config'
+import type { SSEMessage } from '../utils/sse-stream'
 import type {
-    Message,
-    ToolDef,
     FinishReason,
     FunctionCallDelta,
+    Message,
+    ToolDef,
 } from './chat-file'
-import type { SSEMessage } from '../utils/sse-stream'
-
-import type { NormalizedUsage } from '../common/usage'
 
 interface ReasoningStartEvent {
     type: 'reasoning-start'

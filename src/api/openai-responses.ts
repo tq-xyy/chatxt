@@ -1,14 +1,14 @@
+import type { NormalizedUsage } from '../common/usage'
 import type { Config, ModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type { Message, ToolDef, UserContentBlock } from '../types/chat-file'
-import type { SSEMessage } from '../utils/sse-stream'
 import type {
     ResponsesInputContent,
     ResponsesInputItem,
     ResponsesRequest,
     ResponsesStreamEvent,
 } from '../types/apis/openai-responses-api'
-import type { NormalizedUsage } from '../common/usage'
+import type { Message, ToolDef, UserContentBlock } from '../types/chat-file'
+import type { SSEMessage } from '../utils/sse-stream'
 import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'

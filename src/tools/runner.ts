@@ -1,28 +1,28 @@
-import { fork, ChildProcess } from 'child_process'
+import { ChildProcess, fork } from 'child_process'
+import { createRequire } from 'module'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
-import { printWarningMessage, printExceptionMessage } from '../tui'
+
 import { createAPIAdapter } from '../api'
 import { getModelGateway } from '../config'
-import { parseSSEStream } from '../utils/sse-stream'
-
+import type { ChatSession } from '../session'
+import { printExceptionMessage, printWarningMessage } from '../tui'
+import type { APIAdapter, StreamEvent } from '../types/api-adapter'
+import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-api'
 import type {
-    ToolDef,
     FunctionCallMessage,
     FunctionCallResultMessage,
     Message,
+    ToolDef,
 } from '../types/chat-file'
+import type { ChatxtToolAPI } from '../types/tool-runtime-api'
+import { chatxtVersion } from '../utils/meta'
+import { parseSSEStream } from '../utils/sse-stream'
 import type {
     ChatCompletionMessage,
-    IPCMessageFromMain,
     IPCMessageFromChild,
+    IPCMessageFromMain,
 } from './ipc-types'
-import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-api'
-import type { ChatxtToolAPI } from '../types/tool-runtime-api'
-import type { ChatSession } from '../session'
-import { chatxtVersion } from '../utils/meta'
-import { createRequire } from 'module'
 
 const TSX_LOADER = pathToFileURL(
     createRequire(import.meta.url).resolve('tsx')

@@ -1,7 +1,7 @@
-import { readFile, open, stat, type FileHandle } from 'fs/promises'
+import { type FileHandle, open, readFile, stat } from 'fs/promises'
+import { jsonc } from 'jsonc'
 import path from 'path'
 import * as yaml from 'yaml'
-import { jsonc } from 'jsonc'
 
 export async function isFile(filePath: string): Promise<boolean> {
     try {

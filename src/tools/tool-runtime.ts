@@ -1,11 +1,12 @@
-import type { IPCMessageFromChild, IPCMessageFromMain } from './ipc-types'
+import type { JSONSchema7 as JSONSchema } from 'json-schema'
+
 import type {
     OpenAICompatibleRequest,
     OpenAICompatibleResponse,
 } from '../types/apis/openai-compatible-api'
-import type { JSONSchema7 as JSONSchema } from 'json-schema'
 import type { ToolDef } from '../types/chat-file'
 import type { ChatxtToolAPI } from '../types/tool-runtime-api'
+import type { IPCMessageFromChild, IPCMessageFromMain } from './ipc-types'
 
 type ToolFunction = (arg: unknown) => unknown
 

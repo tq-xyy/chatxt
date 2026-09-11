@@ -1,10 +1,10 @@
-import { pathToFileURL } from 'url'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 
 import type { Config, Provider } from '../config'
 import type { APIAdapter } from '../types/api-adapter'
-import { OpenAICompatibleAPIAdapter } from './openai-compatible'
 import { AnthropicAPIAdapter } from './anthropic'
+import { OpenAICompatibleAPIAdapter } from './openai-compatible'
 import { OpenAIResponsesAPIAdapter } from './openai-responses'
 
 export async function createAPIAdapter(

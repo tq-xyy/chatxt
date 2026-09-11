@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir, access, constants } from 'fs/promises'
-import { join, dirname } from 'path'
+import { access, constants, mkdir, readFile, writeFile } from 'fs/promises'
+import { dirname, join } from 'path'
+
+import { modelOfficalPricing, type Pricing } from './common/pricing'
 import { printWarningMessage } from './tui'
-import { type Pricing, modelOfficalPricing } from './common/pricing'
 
 export interface ModelConfig {
     alias?: string

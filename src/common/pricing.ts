@@ -1,6 +1,6 @@
-import type { NormalizedUsage } from './usage'
 import { loadDataWithAutoExt } from '../utils/file-utils'
 import { DATA_DIR } from '../utils/meta'
+import type { NormalizedUsage } from './usage'
 
 export const modelOfficalPricing: Record<string, Pricing | Pricing[]> =
     await loadDataWithAutoExt(DATA_DIR, 'model-offical-pricing')

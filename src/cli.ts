@@ -1,6 +1,7 @@
 import { Command } from 'commander'
+
+import { type Config, initConfig, loadConfig, type Provider } from './config'
 import { ChatSession } from './session'
-import { initConfig, loadConfig, type Config, type Provider } from './config'
 import { chatxtVersion } from './utils/meta'
 
 interface CliOptions {

@@ -1,18 +1,18 @@
+import type { NormalizedUsage } from '../common/usage'
 import type { Config, ModelGateway } from '../config'
 import type { APIAdapter, StreamEvent } from '../types/api-adapter'
-import type { Message, ToolDef, FinishReason } from '../types/chat-file'
 import type {
     OpenAICompatibleAssistantMessage,
     OpenAICompatibleChunk,
     OpenAICompatibleMessage,
     OpenAICompatibleRequest,
-    OpenAICompatibleUsage,
     OpenAICompatibleToolCall,
     OpenAICompatibleToolCallChunk,
     OpenAICompatibleToolDefinition,
+    OpenAICompatibleUsage,
 } from '../types/apis/openai-compatible-api'
+import type { FinishReason, Message, ToolDef } from '../types/chat-file'
 import type { SSEMessage } from '../utils/sse-stream'
-import type { NormalizedUsage } from '../common/usage'
 import { assertOk } from './http'
 
 type OutputFlag = 'UNKNOWN' | 'THINKING' | 'ASSISTANT' | 'TOOL'

@@ -1,9 +1,10 @@
 import eslint from '@eslint/js'
 import { defineConfig } from 'eslint/config'
-import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
+import simpleImportSort from 'eslint-plugin-simple-import-sort'
 import { readFileSync } from 'fs'
 import path from 'path'
+import tseslint from 'typescript-eslint'
 
 const ignores = readFileSync(
     path.join(import.meta.dirname, '.gitignore'),
@@ -17,5 +18,14 @@ export default defineConfig(
     { ignores },
     eslint.configs.recommended,
     tseslint.configs.recommended,
+    {
+        plugins: {
+            'simple-import-sort': simpleImportSort,
+        },
+        rules: {
+            'simple-import-sort/imports': 'error',
+            'simple-import-sort/exports': 'error',
+        },
+    },
     prettier
 )

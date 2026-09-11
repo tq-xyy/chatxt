@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto'
+
+import { type ChildProcess, spawn } from 'child_process'
+import { existsSync } from 'fs'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { existsSync } from 'fs'
-import { randomUUID } from 'node:crypto'
-import { spawn, type ChildProcess } from 'child_process'
 
 // run_shell 实现机制（对照 DeepSeek Harness `tool-bash-persistent`）
 // run_shell 的设计对照 DeepSeek Harness 的 tool-bash-persistent；chatxt 用 spawn 管道而非 PTY，故省略其提示符安装与回显剥离逻辑。

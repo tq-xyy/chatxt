@@ -1,8 +1,9 @@
+import type { JSONSchema7 as JSONSchema } from 'json-schema'
+
 import type {
     OpenAICompatibleRequest,
     OpenAICompatibleResponse,
 } from '../types/apis/openai-compatible-api'
-import type { JSONSchema7 as JSONSchema } from 'json-schema'
 
 type WithFalsy<T> = T | null | undefined | false
 

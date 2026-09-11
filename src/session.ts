@@ -1,10 +1,10 @@
 import { writeFile } from 'fs/promises'
 
-import { getModelGateway, type Config } from './config'
-import { ChatFile } from './fileobj'
-
-import { mergeNormalizedUsages, type NormalizedUsage } from './common/usage'
+import { createAPIAdapter } from './api'
 import { defaultSystemPrompt } from './common/prompt'
+import { mergeNormalizedUsages, type NormalizedUsage } from './common/usage'
+import { type Config, getModelGateway } from './config'
+import { ChatFile } from './fileobj'
 import { ToolRunner } from './tools/runner'
 import {
     printExceptionMessage,
@@ -12,9 +12,7 @@ import {
     printWarningMessage,
     ProgressPanel,
 } from './tui'
-import { parseSSEStream } from './utils/sse-stream'
-import { isFile } from './utils/file-utils'
-
+import type { StreamEvent } from './types/api-adapter'
 import type {
     AssistantMessage,
     FinishReason,
@@ -23,8 +21,8 @@ import type {
     Message,
     UserContentBlock,
 } from './types/chat-file'
-import type { StreamEvent } from './types/api-adapter'
-import { createAPIAdapter } from './api'
+import { isFile } from './utils/file-utils'
+import { parseSSEStream } from './utils/sse-stream'
 
 /**
  * 空输入判定。user 内容可能是多模态数组，此时只要含有内容块

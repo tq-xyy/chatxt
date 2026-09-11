@@ -1,20 +1,20 @@
-import { readFile, appendFile } from 'fs/promises'
-import { imgToDataUri, isFile, isPlainUTF8Text } from './utils/file-utils'
+import { appendFile, readFile } from 'fs/promises'
 import * as path from 'path'
 
-import type {
-    AssistantMessage,
-    Message,
-    FunctionCallDelta,
-    FunctionCallMessage,
-    FunctionCallResultMessage,
-    SystemMessage,
-    UserMessage,
-    UserContentBlock,
-} from './types/chat-file'
 import type { Config } from './config'
 import { printWarningMessage } from './tui'
 import type { StreamEvent } from './types/api-adapter'
+import type {
+    AssistantMessage,
+    FunctionCallDelta,
+    FunctionCallMessage,
+    FunctionCallResultMessage,
+    Message,
+    SystemMessage,
+    UserContentBlock,
+    UserMessage,
+} from './types/chat-file'
+import { imgToDataUri, isFile, isPlainUTF8Text } from './utils/file-utils'
 
 export type ChatRole =
     | 'UNKNOWN'

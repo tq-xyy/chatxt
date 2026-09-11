@@ -1,5 +1,5 @@
-import type { ToolDef } from '../types/chat-file'
 import type { OpenAICompatibleRequest } from '../types/apis/openai-compatible-api'
+import type { ToolDef } from '../types/chat-file'
 
 export interface RegisterMessage {
     type: 'registerTool'
