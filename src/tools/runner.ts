@@ -88,11 +88,16 @@ export class ToolRunner {
             generalModel: this.session.config.model,
         }
 
-        const execArgv = [...process.execArgv, '--import', this.runtimePath]
+        // tsx loader 必须先于 .ts 的 runtime 预加载：tsx 会检查 --import 顺序，
+        // 若发现 tsx 之前有 .ts preload，则回退到异步 module.register()，
+        // 在 Node 22.22+/24.11+ 上会触发 DEP0205 弃用警告
+        const execArgv = [...process.execArgv]
 
         if (!execArgv.join(',').includes('tsx')) {
             execArgv.push('--import', TSX_LOADER)
         }
+
+        execArgv.push('--import', this.runtimePath)
 
         const child = fork(absPath, [], {
             execArgv,
