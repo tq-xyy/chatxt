@@ -22,6 +22,14 @@ import type { OpenAICompatibleResponse } from '../types/apis/openai-compatible-a
 import type { ChatxtToolAPI } from '../types/tool-runtime-api'
 import type { ChatSession } from '../session'
 import { chatxtVersion } from '../utils/meta'
+import { createRequire } from 'module'
+
+const TSX_LOADER = pathToFileURL(
+    createRequire(import.meta.url).resolve('tsx')
+).href
+const RUNTIME_PATH = pathToFileURL(
+    path.join(import.meta.dirname, 'tool-runtime.ts')
+).href
 
 function sendToChild(
     child: ChildProcess,
@@ -61,11 +69,9 @@ export class ToolRunner {
     private runtimePath: string
     private session: ChatSession
 
-    constructor(session: ChatSession) {
+    constructor(session: ChatSession, runtimePath?: string) {
         this.session = session
-        this.runtimePath = pathToFileURL(
-            path.join(import.meta.dirname, 'tool-runtime.ts')
-        ).href
+        this.runtimePath = runtimePath || RUNTIME_PATH
     }
 
     async loadTool(filePath: string): Promise<void> {
@@ -82,8 +88,14 @@ export class ToolRunner {
             generalModel: this.session.config.model,
         }
 
+        const execArgv = [...process.execArgv, '--import', this.runtimePath]
+
+        if (!execArgv.join(',').includes('tsx')) {
+            execArgv.push('--import', TSX_LOADER)
+        }
+
         const child = fork(absPath, [], {
-            execArgv: [...process.execArgv, '--import', this.runtimePath],
+            execArgv,
             stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
             env: {
                 ...process.env,

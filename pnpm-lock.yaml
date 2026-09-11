@@ -20,6 +20,9 @@ importers:
       jsonc:
         specifier: ^2.0.0
         version: 2.0.0
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -42,9 +45,6 @@ importers:
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
-      tsx:
-        specifier: ^4.23.13
-        version: 4.23.13
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
