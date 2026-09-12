@@ -176,7 +176,6 @@ export class ChatSession {
                     )
 
                     this.toolCallDeltaBuffer = []
-                    this.messages.push({ role: 'assistant', content: '' })
 
                     for await (const message of parseSSEStream(resp)) {
                         await api.handleChunk(message, this.onEmit.bind(this))

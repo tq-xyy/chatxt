@@ -69,11 +69,13 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
                     ],
                 })
             }
-            items.push({
-                type: 'message',
-                role: 'assistant',
-                content: msg.content ?? '',
-            })
+            if (msg.content && msg.content.length > 0) {
+                items.push({
+                    type: 'message',
+                    role: 'assistant',
+                    content: msg.content,
+                })
+            }
         } else if (msg.role === 'tool-call') {
             items.push({
                 type: 'function_call',
