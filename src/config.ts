@@ -34,6 +34,7 @@ export interface Config {
     apikey?: string
 
     // input options
+    allowNoUserInput?: boolean
     excludeHistoryToolCall?: boolean
 
     // output options

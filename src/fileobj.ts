@@ -215,8 +215,6 @@ export class ChatFile {
         }
         type TextBlock = { type: 'text'; text: string }
 
-        // 文本按出现顺序累积成一段；图片单独收集。文本与图片之间的相对顺序
-        // 在下面的拼装阶段本来就会丢失，所以分开存更直白。
         const content: (TextBlock | PlainTextBlock)[] = []
         const images: UserContentBlock[] = []
         let toolSet = new Set<string>()
@@ -234,23 +232,6 @@ export class ChatFile {
                 lastText.text += text
             } else {
                 content.push({ type: 'text', text })
-            }
-        }
-
-        /** @include 的结果可能纯文本，也可能是多模态数组 */
-        const appendContent: (
-            value: string | UserContentBlock[]
-        ) => void = value => {
-            if (typeof value === 'string') {
-                addToLastText(value)
-                return
-            }
-            for (const part of value) {
-                if (part.type === 'text') {
-                    addToLastText(part.text)
-                } else {
-                    images.push(part)
-                }
             }
         }
 
@@ -304,10 +285,6 @@ export class ChatFile {
                             )
                         }
                     } else {
-                        // 不是 UTF-8 文本才当作图片试。两者互斥，否则纯文本文件
-                        // 会被再试一次图片并误报「既不是文本也不是图片」。
-                        // 注意用 filePath 而不是 comp.arg：后者相对 chat 文件所在
-                        // 目录，直接喂给 readFile 会按 cwd 解析而找不到文件。
                         const dataUri = await imgToDataUri(filePath)
 
                         if (!dataUri) {
@@ -361,8 +338,19 @@ export class ChatFile {
                             [...(parentInclude || []), path.resolve(filePath)]
                         )
 
-                    appendContent(includeMessages.content)
-                    addToLastText('\n')
+                    if (typeof includeMessages.content === 'string') {
+                        addToLastText(includeMessages.content)
+                    } else if (Array.isArray(includeMessages.content)) {
+                        for (const part of includeMessages.content) {
+                            if (part.type === 'text') {
+                                addToLastText(part.text)
+                            } else {
+                                images.push(part)
+                            }
+                        }
+                        addToLastText('\n')
+                    }
+
                     toolSet = toolSet.union(includeToolSet)
                 } catch (err) {
                     printWarningMessage(
@@ -374,7 +362,6 @@ export class ChatFile {
             }
         }
 
-        // 恢复「正文修剪后 + 空行 + 引文修剪后」的旧有拼接语义
         const textBody = content
             .filter(isTextBlock)
             .map(p => p.text)
@@ -394,8 +381,6 @@ export class ChatFile {
                 ? textBody.trimEnd() + '\n\n' + quoteBody.trimEnd()
                 : textBody.trimEnd()
 
-        // 只要出现图片就走多模态分支。注意这里是「存在」而非「全部是」——
-        // 图文混排（如「描述这张图 @file(a.png)」）才是最常见的用法。
         if (images.length > 0) {
             if (block.role == 'SYSTEM') {
                 printWarningMessage(

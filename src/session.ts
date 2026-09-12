@@ -149,8 +149,9 @@ export class ChatSession {
 
             const lastMessage = messages.at(-1)
             if (
-                lastMessage?.role !== 'user' ||
-                isEmptyUserContent(lastMessage.content)
+                (lastMessage?.role !== 'user' ||
+                    isEmptyUserContent(lastMessage.content)) &&
+                !this.config.allowNoUserInput
             ) {
                 printWarningMessage('No user input.')
                 this.panel.close()

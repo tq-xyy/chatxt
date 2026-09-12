@@ -13,6 +13,7 @@ interface CliOptions {
     excludeHistoryToolCall: boolean
     emitToConsole: boolean
     verbose: boolean
+    next: boolean
 }
 
 const program = new Command()
@@ -43,6 +44,10 @@ const program = new Command()
         '-v, --verbose',
         'print a per-round summary line for each completed API request'
     )
+    .option(
+        '--next',
+        'Allow the model to continue the unfinished conversation from the previous round.'
+    )
     .action(async (file: string, opts: CliOptions) => {
         const cliConfig: Partial<Config> = {
             model: opts.model,
@@ -52,6 +57,7 @@ const program = new Command()
             excludeHistoryToolCall: opts.excludeHistoryToolCall,
             emitToConsole: opts.emitToConsole,
             verbose: opts.verbose,
+            allowNoUserInput: opts.next,
 
             // `--no-emit-thinking` 这类可否定选项，commander 生成的默认值是 true，
             // 永远覆盖 config.json 里的 emitThinking，因此只在显式指定时才写入。
