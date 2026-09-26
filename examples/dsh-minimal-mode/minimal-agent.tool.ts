@@ -73,11 +73,13 @@ process.on('SIGTERM', () => {
 // 存放于本目录 windows/ 下（.gitignore 中，需按 README 自行放置）。
 
 function startShell(): ChildProcess {
+    let proc: ChildProcess
     if (isWin) {
         let busyboxBinary: string | undefined
         for (const possible of BUSYBOX_POSSIBLE_PATH) {
             if (existsSync(path.join(import.meta.dirname, possible))) {
                 busyboxBinary = path.join(import.meta.dirname, possible)
+                break
             }
         }
         if (!busyboxBinary) {
@@ -88,18 +90,24 @@ function startShell(): ChildProcess {
         // 无交互、无 profile；从 stdin 逐行读取命令。
         // busybox ash 不支持 bash 的 --noprofile/--norc，也不支持 eval --，
         // 但管道模式下本就无 rc 文件加载，UTF-8 输入输出无需额外编码设置。
-        return spawn(busyboxBinary, ['bash'], {
+        proc = spawn(busyboxBinary, ['bash'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            cwd: chatxt.context.chatFileDirname,
+            env: UTF8_ENV,
+        })
+    } else {
+        // bash 无编码问题；noprofile/norc 与 dsh 的 bash 启动参数一致
+        proc = spawn('bash', ['--noprofile', '--norc'], {
             stdio: ['pipe', 'pipe', 'pipe'],
             cwd: chatxt.context.chatFileDirname,
             env: UTF8_ENV,
         })
     }
-    // bash 无编码问题；noprofile/norc 与 dsh 的 bash 启动参数一致
-    return spawn('bash', ['--noprofile', '--norc'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: chatxt.context.chatFileDirname,
-        env: UTF8_ENV,
-    })
+    // 让 Readable 内部做 UTF-8 解码：避免多字节字符被拆到两个 chunk 时
+    // 调用 chunk.toString('utf-8') 产生 `�`。
+    proc.stdout?.setEncoding('utf-8')
+    proc.stderr?.setEncoding('utf-8')
+    return proc
 }
 
 function getShell(): ChildProcess {
@@ -195,6 +203,20 @@ function parseOutput(
     }
 }
 
+/** 未拿到 END marker 时的部分输出提取：剥离 START marker，标记前缀是否可能丢失。 */
+function extractPartial(
+    text: string,
+    marker: CommandMarkers,
+    lostPrefix: boolean
+): { text: string; incomplete: boolean } {
+    const startIdx = text.lastIndexOf(marker.start)
+    if (startIdx < 0) return { text, incomplete: true }
+    return {
+        text: text.slice(startIdx + marker.start.length).replace(/^\r?\n/, ''),
+        incomplete: lostPrefix,
+    }
+}
+
 function renderCaptured(
     output: CapturedOutput | { text: string; incomplete: boolean }
 ): string {
@@ -244,33 +266,49 @@ async function executeCommand(
             proc.stdout?.off('data', onStdout)
             proc.stderr?.off('data', onStderr)
             proc.off('exit', onExit)
+            proc.off('error', onProcError)
+            proc.stdin?.off('error', onStdinError)
             resolve(result)
         }
 
         // 超时语义（对照 dsh）：返回部分输出 + 重置 shell（下一条全新）
         const timer = setTimeout(() => {
-            const partial = renderCaptured({
-                text: buffer,
-                incomplete: lostPrefix,
-            })
+            const partial = renderCaptured(
+                extractPartial(buffer, marker, lostPrefix)
+            )
             resetShell()
             finish(
                 `命令超时（${Math.round(timeoutMs / 1000)} 秒）。以下为部分输出：\n${partial}\n${SHELL_RESET_MESSAGE}`
             )
         }, timeoutMs)
 
-        // shell 意外退出：报告退出并重置
+        // shell 意外退出：报告退出、附上已捕获输出并重置
         const onExit = (
             code: number | null,
             signal: NodeJS.Signals | null
         ) => {
             const who = signal !== null ? `signal ${signal}` : `code ${code}`
+            const partial = renderCaptured(
+                extractPartial(buffer, marker, lostPrefix)
+            )
             resetShell()
-            finish(`[shell exited: ${who}]\n${SHELL_RESET_MESSAGE}`)
+            const body =
+                partial.length > 0 ? `以下为部分输出：\n${partial}\n` : ''
+            finish(`[shell exited: ${who}]\n${body}${SHELL_RESET_MESSAGE}`)
         }
 
-        const accumulate = (chunk: Buffer) => {
-            buffer += chunk.toString('utf-8')
+        // spawn 失败 / 管道 EPIPE 等错误
+        const onProcError = (err: Error) => {
+            resetShell()
+            finish(`[shell error: ${err.message}]\n${SHELL_RESET_MESSAGE}`)
+        }
+        const onStdinError = (err: Error) => {
+            resetShell()
+            finish(`[stdin error: ${err.message}]\n${SHELL_RESET_MESSAGE}`)
+        }
+
+        const accumulate = (chunk: string) => {
+            buffer += chunk
             if (buffer.length > MAX_BUFFER_BYTES) {
                 buffer = buffer.slice(-MAX_BUFFER_BYTES)
                 lostPrefix = true
@@ -279,12 +317,14 @@ async function executeCommand(
             if (parsed) finish(renderCaptured(parsed))
         }
 
-        const onStdout = (chunk: Buffer) => accumulate(chunk)
-        const onStderr = (chunk: Buffer) => accumulate(chunk)
+        const onStdout = (chunk: string) => accumulate(chunk)
+        const onStderr = (chunk: string) => accumulate(chunk)
 
         proc.stdout?.on('data', onStdout)
         proc.stderr?.on('data', onStderr)
         proc.on('exit', onExit)
+        proc.on('error', onProcError)
+        proc.stdin?.on('error', onStdinError)
         proc.stdin?.write(`${wrapped}\n`)
     })
 }
@@ -309,9 +349,14 @@ async function run_shell({
     }
 }
 
+// ---------------------------------------------------------------------------
+// str_replace_editor
+// ---------------------------------------------------------------------------
+
+/** 按 '\n' 读入文件，并把 CRLF 归一化为 LF。 */
 async function readFileLines(absPath: string): Promise<string[]> {
     const content = await fs.readFile(absPath, 'utf-8')
-    return content.split('\n')
+    return content.replace(/\r\n/g, '\n').split('\n')
 }
 
 // 编辑结果回显片段时，替换/插入位置上下各附带的行数
@@ -329,6 +374,17 @@ function formatLines(lines: string[], startLine: number): string {
     return lines
         .map((text, i) => `${String(startLine + i).padStart(4)} | ${text}`)
         .join('\n')
+}
+
+/** 判断路径是否存在；只有 ENOENT 视为“不存在”，其它错误继续抛出。 */
+async function fileExists(absPath: string): Promise<boolean> {
+    try {
+        await fs.access(absPath)
+        return true
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
+        throw err
+    }
 }
 
 async function str_replace_editor({
@@ -358,54 +414,68 @@ async function str_replace_editor({
         switch (command) {
             case 'view': {
                 const lines = await readFileLines(abs)
+                const total = countLines(lines)
                 if (view_range) {
                     const [start, end] = view_range.split(':').map(Number)
-                    if (!start || !end) {
+                    if (!Number.isInteger(start) || start < 1) {
                         return {
-                            error: 'view_range 格式应为 "起始:结束"，如 "1:50"',
+                            error: 'view_range 起始行必须为正整数，如 "1:50"',
+                        }
+                    }
+                    if (!Number.isInteger(end) || end < start) {
+                        return {
+                            error: 'view_range 结束行必须为不小于起始行的整数，如 "1:50"',
+                        }
+                    }
+                    if (start > total) {
+                        return {
+                            error: `view_range 起始行超出文件范围（文件共 ${total} 行）`,
                         }
                     }
                     const slice = lines.slice(start - 1, end)
                     return {
-                        output: `${slice.join('\n')}\n[显示第 ${start}-${start - 1 + slice.length} 行，共 ${countLines(lines)} 行]`,
+                        output: `${slice.join('\n')}\n[显示第 ${start}-${start - 1 + slice.length} 行，共 ${total} 行]`,
                     }
                 }
                 return {
-                    output: `${lines.join('\n')}\n[共 ${countLines(lines)} 行]`,
+                    output: `${lines.join('\n')}\n[共 ${total} 行]`,
                 }
             }
 
             case 'str_replace': {
                 if (!old_string) return { error: 'old_string 不能为空' }
-                const content = await fs.readFile(abs, 'utf-8')
-                const count = content.split(old_string).length - 1
+                // 读取时归一化为 LF，避免 CRLF 文件里 old_string 匹配失败
+                const content = (await fs.readFile(abs, 'utf-8')).replace(
+                    /\r\n/g,
+                    '\n'
+                )
+                const needle = old_string.replace(/\r\n/g, '\n')
+                const replacement = new_string.replace(/\r\n/g, '\n')
+                const count = content.split(needle).length - 1
                 if (count === 0) {
                     return { error: `未找到 old_string 的匹配` }
                 }
                 if (count > 1) {
                     // 列出各匹配的起始行号，帮助 AI 补充上下文消歧
                     const lineNumbers: number[] = []
-                    let idx = content.indexOf(old_string)
+                    let idx = content.indexOf(needle)
                     while (idx !== -1) {
                         lineNumbers.push(
                             content.slice(0, idx).split('\n').length
                         )
-                        idx = content.indexOf(
-                            old_string,
-                            idx + old_string.length
-                        )
+                        idx = content.indexOf(needle, idx + needle.length)
                     }
                     return {
                         error: `找到 ${count} 处匹配（第 ${lineNumbers.join('、')} 行），old_string 必须唯一`,
                     }
                 }
-                const at = content.indexOf(old_string)
+                const at = content.indexOf(needle)
                 const matchLine = content.slice(0, at).split('\n').length
                 // 用函数形式替换，避免 new_string 中的 $&、$1 等被 String.replace 特殊展开
-                const replaced = content.replace(old_string, () => new_string)
+                const replaced = content.replace(needle, () => replacement)
                 await fs.writeFile(abs, replaced, 'utf-8')
                 const newLines = replaced.split('\n')
-                const replacedSpan = new_string.split('\n').length
+                const replacedSpan = replacement.split('\n').length
                 const ctxStart = Math.max(
                     0,
                     matchLine - 1 - SNIPPET_CONTEXT_LINES
@@ -420,29 +490,42 @@ async function str_replace_editor({
             }
 
             case 'create': {
-                try {
-                    await fs.access(abs)
+                if (await fileExists(abs)) {
                     return {
                         error: `文件已存在：${file_path}，请改用 str_replace`,
                     }
-                } catch {
-                    await fs.writeFile(abs, new_string, 'utf-8')
-                    return {
-                        output: `已创建 ${file_path}（共 ${countLines(new_string.split('\n'))} 行）`,
-                    }
+                }
+                const normalized = new_string.replace(/\r\n/g, '\n')
+                await fs.writeFile(abs, normalized, 'utf-8')
+                return {
+                    output: `已创建 ${file_path}（共 ${countLines(normalized.split('\n'))} 行）`,
                 }
             }
 
             case 'insert': {
-                if (!line || line < 1) return { error: 'line 必须为正整数' }
+                if (
+                    line === undefined ||
+                    !Number.isInteger(line) ||
+                    line < 1
+                ) {
+                    return { error: 'line 必须为正整数' }
+                }
                 const lines = await readFileLines(abs)
-                lines.splice(line - 1, 0, new_string)
+                const total = countLines(lines)
+                if (line > total + 1) {
+                    return {
+                        error: `line 超出范围（文件共 ${total} 行，可插入位置 1..${total + 1}）`,
+                    }
+                }
+                const normalized = new_string.replace(/\r\n/g, '\n')
+                // 多行 new_string 需要展开为多个数组元素，否则 splice/join/countLines 全部错位
+                const inserted = normalized.split('\n')
+                lines.splice(line - 1, 0, ...inserted)
                 await fs.writeFile(abs, lines.join('\n'), 'utf-8')
-                const insertedSpan = new_string.split('\n').length
                 const ctxStart = Math.max(0, line - 1 - SNIPPET_CONTEXT_LINES)
                 const snippet = lines.slice(
                     ctxStart,
-                    line - 1 + insertedSpan + SNIPPET_CONTEXT_LINES
+                    line - 1 + inserted.length + SNIPPET_CONTEXT_LINES
                 )
                 return {
                     output: `已在 ${file_path} 的第 ${line} 行插入内容（文件共 ${countLines(lines)} 行）。插入后片段：\n${formatLines(snippet, ctxStart + 1)}`,
