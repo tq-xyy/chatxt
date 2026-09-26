@@ -80,6 +80,9 @@ export async function loadDataWithAutoExt(...pathsWithoutExt: string[]) {
             await readFile(pathWithoutExt + '.yaml', 'utf-8')
         )
     }
+    if (await isFile(pathWithoutExt + '.txt')) {
+        return await readFile(pathWithoutExt + '.txt', 'utf-8')
+    }
     throw new Error(
         `Data file ${pathWithoutExt}.{json,jsonc,yaml} is not found`
     )

@@ -261,11 +261,11 @@ export class ProgressPanel {
 
     /** 阶段切换（由 session 插桩调用）：结算上一阶段耗时 */
     public setPhase(phase: Phase): void {
-        if (!this.enabled) return
         const now = performance.now()
         this.settlePhase(now)
         this.currentPhase = phase
         this.phaseStart = now
+        this.outputCount = 0
         if (phase !== 'tool' && phase !== 'subagent') {
             this.pendingToolNames = []
         }
@@ -320,7 +320,6 @@ export class ProgressPanel {
     }
 
     public onRequestStart(): void {
-        if (!this.enabled) return
         this.roundIndex += 1
         this.roundOutMs = 0
         this.setPhase('network')
@@ -328,7 +327,6 @@ export class ProgressPanel {
 
     /** 事件入口：token 计数、usage 记账，并按事件类型自行推导阶段（纯展示语义） */
     public onStreamEvent(event: StreamEvent): void {
-        if (!this.enabled) return
         switch (event.type) {
             case 'response-start':
                 // 首个业务 chunk 到达：TTFB 结束，切到 responding（netMs 继续累计）
@@ -468,7 +466,7 @@ export class ProgressPanel {
             (this.currentPhase === 'thinking' ||
                 this.currentPhase === 'output') &&
             phaseElapsedMs > 200
-                ? ` · ${((this.outputCount / phaseElapsedMs) * 1000).toFixed(0)} t/s`
+                ? ` · ${((this.outputCount / phaseElapsedMs) * 1000).toFixed(1)} t/s`
                 : ''
 
         // 只显示阶段 + 轮次 + 总秒数，保证 64 列内不触发终端换行
